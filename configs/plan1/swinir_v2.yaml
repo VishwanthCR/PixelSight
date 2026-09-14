@@ -1,0 +1,26 @@
+model:
+  name: swinir_residual
+  in_channels: 4
+  out_channels: 4
+  scale: 2
+  embed_dim: 60
+  depths: 6
+  num_heads: 6
+  window_size: 8
+  reconstruction: bicubic_residual
+
+training:
+  epochs: 50
+  batch_size: 16
+  learning_rate: 0.0002
+  loss: l1
+
+data:
+  train_region: region1
+  validation_region: region2
+  test_region: region3
+  train_content_only: false
+
+evaluation:
+  clamp_output: true
+  evaluate_empty_patches: true
