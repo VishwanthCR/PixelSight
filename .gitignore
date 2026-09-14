@@ -1,0 +1,53 @@
+# =========================
+# PixelSight data
+# =========================
+dataset/
+data/raw/
+data/processed/
+
+# =========================
+# Model checkpoints / weights
+# =========================
+checkpoints/
+*.pth
+*.pt
+*.ckpt
+*.safetensors
+
+# =========================
+# Generated experiment outputs
+# =========================
+visual_results/
+results/generated/
+*.npy
+*.npz
+*.tif
+*.tiff
+
+# =========================
+# Python
+# =========================
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# =========================
+# Jupyter
+# =========================
+.ipynb_checkpoints/
+
+# =========================
+# IDE / OS
+# =========================
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# =========================
+# Logs
+# =========================
+*.log
