@@ -1,0 +1,32 @@
+experiment:
+  name: pixelsight_plan1
+  task: 2x_multispectral_super_resolution
+  channels: 4
+
+dataset:
+  region1: train
+  region2: validation
+  region3: final_test
+
+input:
+  spatial_size: 32
+  channels: 4
+
+target:
+  spatial_size: 64
+  channels: 4
+
+evaluation:
+  primary:
+    - psnr
+    - ssim
+    - sam
+  secondary:
+    - mse
+
+  report:
+    - all_pixels
+    - content_only
+    - empty_patch_behavior
+
+  test_region_is_untouched: true
