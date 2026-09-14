@@ -4,3 +4,12 @@ scikit-image==0.26.0
 matplotlib==3.11.2
 PyYAML==6.0.3
 tqdm==4.67.1
+torch==2.14.0
+torchvision==0.29.0
+Pillow
+rasterio
+boto3
+requests
+omegaconf
+opensr-model
+opensr-utils
