@@ -1,0 +1,7 @@
+model,split,subset,MSE,PSNR_dB,SSIM,SAM_rad,SAM_deg
+Bicubic,Region3 Final Test,All,0.0000470120,43.2779,0.989632,,
+Bicubic,Region3 Final Test,Content Only,0.0001415076,38.4922,0.947908,0.020895,1.1972
+SwinIR v1,Region3 Final Test,All,0.0000321733,44.9250,0.987456,,
+SwinIR v1,Region3 Final Test,Content Only,0.0000962853,40.1644,0.965251,0.020280,1.1620
+SwinIR v2,Region3 Final Test,All,0.0000239231,46.2118,0.990700,,
+SwinIR v2,Region3 Final Test,Content Only,0.0000720553,41.4233,0.972007,0.015661,0.8973
