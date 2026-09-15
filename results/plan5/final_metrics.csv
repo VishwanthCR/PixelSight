@@ -1,0 +1,29 @@
+Section,Metric,Value,Unit
+P2,Input resolution,10 m,
+P2,Output resolution,2.5 m equivalent,
+P2,Scale factor,4x,
+P2,Bands,4,
+P2,Sampling steps,100,
+P3,Uncertainty mean,0.003319256938993931,
+P3,Uncertainty median,0.002963025588542223,
+P3,Uncertainty 90th percentile,0.00521892961114645,
+P3,Uncertainty max,0.04818045720458031,
+P3,High uncertainty error rate,0.706237,
+P3,Low uncertainty error rate,0.531452,
+P3,High-low error difference,17.478499999999997,percentage points
+P4 Urban,Native gradient energy,0.007364,
+P4 Urban,Bicubic gradient energy,0.001941,
+P4 Urban,LDSR gradient energy,0.003489,
+P4 Urban,LDSR vs bicubic,79.75270479134467,%
+P4 Crop,Bicubic NDVI MAE,0.00765141,
+P4 Crop,LDSR NDVI MAE,0.00734301,
+P4 Crop,MAE improvement,4.030629648652998,%
+P4 Crop,Bicubic NDVI RMSE,0.01130433,
+P4 Crop,LDSR NDVI RMSE,0.00976343,
+P4 Crop,RMSE improvement,13.631059956671468,%
+P4 Segmentation,Native pixel accuracy,0.759766,
+P4 Segmentation,LDSR pixel accuracy,0.451069,
+P4 Segmentation,Native mIoU,0.301203,
+P4 Segmentation,LDSR mIoU,0.122368,
+P4 Segmentation,Native Dice,0.396126,
+P4 Segmentation,LDSR Dice,0.17583,

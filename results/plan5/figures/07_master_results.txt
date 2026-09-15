@@ -1,0 +1,55 @@
+================================================================================
+PIXELSIGHT — MASTER RESULTS
+================================================================================
+
+P2 — SUPER-RESOLUTION
+--------------------------------------------------------------------------------
+Input resolution       : 10 m
+Output resolution      : 2.5 m equivalent
+Scale factor           : 4x
+Spectral bands         : 4 (B02/B03/B04/B08)
+Diffusion steps        : 100
+
+P3 — UNCERTAINTY
+--------------------------------------------------------------------------------
+Mean uncertainty       : 0.003319
+Median uncertainty     : 0.002963
+90th percentile        : 0.005219
+Maximum uncertainty    : 0.048180
+Low-U error rate       : 53.15%
+High-U error rate      : 70.62%
+Difference             : 17.48 percentage points
+Relative increase      : 32.89%
+
+P4 — URBAN
+--------------------------------------------------------------------------------
+Native gradient energy : 0.007364
+Bicubic gradient       : 0.001941
+LDSR gradient          : 0.003489
+LDSR vs bicubic        : 79.75%
+LDSR/bicubic ratio     : 1.80x
+
+P4 — CROP
+--------------------------------------------------------------------------------
+Bicubic NDVI MAE      : 0.00765141
+LDSR NDVI MAE         : 0.00734301
+MAE improvement        : 4.03%
+Bicubic NDVI RMSE     : 0.01130433
+LDSR NDVI RMSE        : 0.00976343
+RMSE improvement      : 13.63%
+
+P4 — SEGMENTATION
+--------------------------------------------------------------------------------
+Accuracy       : Native=0.7598 | LDSR=0.4511
+mIoU           : Native=0.3012 | LDSR=0.1224
+Dice           : Native=0.3961 | LDSR=0.1758
+Precision      : Native=0.6119 | LDSR=0.3118
+Recall         : Native=0.4397 | LDSR=0.4438
+
+IMPORTANT LIMITATIONS
+--------------------------------------------------------------------------------
+1. LDSR output is a super-resolved representation, not observed 2.5 m satellite imagery.
+2. WorldCover provides 10 m-scale proxy labels.
+3. The U-Net was trained at 10 m and directly applied to 2.5 m LDSR output.
+4. No disaster-specific ground-truth dataset was available locally.
+5. Independent true high-resolution validation has not yet been completed.

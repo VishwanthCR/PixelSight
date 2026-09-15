@@ -1,0 +1,16 @@
+seed: 42
+data: {base_dir: dataset/segmentation/patches, train_split: train, validation_split: validation, test_split: test, num_classes: 7, input_channels: 4, patch_size: 128, ignore_index: 255}
+model: {name: unet, base_channels: 32, input_channels: 4, num_classes: 7}
+training:
+  epochs: 50
+  batch_size: 32
+  learning_rate: 0.0001
+  weight_decay: 0.0001
+  optimizer: adamw
+  augment: true
+  early_stopping_patience: 8
+  loss: {name: cross_entropy, ignore_index: 255, class_weight_mode: inverse_sqrt, min_weight: 0.5, max_weight: 2.5}
+  num_workers: 0
+  pin_memory: true
+checkpoint: {directory: checkpoints/segmentation, best_model: unet_worldcover_experiment_c_aug_moderate_ce_best.pth}
+logging: {directory: results/segmentation/experiments/experiment_c_aug_moderate_ce}

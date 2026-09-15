@@ -1,0 +1,3 @@
+representation,valid_pixels,built_up_pixels,built_up_fraction,cropland_pixels,cropland_fraction
+Native 10m,262144,1506,0.00574493408203125,45151,0.17223739624023438
+2.5m grid,4194304,24096,0.00574493408203125,722416,0.17223739624023438

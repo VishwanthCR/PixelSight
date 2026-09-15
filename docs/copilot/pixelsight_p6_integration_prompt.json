@@ -1,0 +1,232 @@
+{
+  "project": {
+    "name": "PixelSight",
+    "problem_statement": "SIH26142",
+    "objective": "Deep Learning Based Super Resolution Mapping from Medium Resolution Satellite Imageries"
+  },
+
+  "p6_goal": {
+    "description": "Build a production-style frontend and backend application that allows users to upload compatible satellite imagery, run the real PixelSight super-resolution pipeline, visualize uncertainty, calculate valid evaluation metrics, and provide geospatial analysis features.",
+    
+    "important_user_requirement": "The frontend must accept user-uploaded satellite imagery and send it through the actual backend/model pipeline rather than only displaying precomputed project results."
+  },
+
+  "input": {
+    "description": "User-uploaded satellite imagery",
+    "supported_format_priority": [
+      "GeoTIFF",
+      "TIFF"
+    ],
+    "current_model_requirement": {
+      "sensor_family": "Sentinel-2 compatible",
+      "bands": [
+        "B02",
+        "B03",
+        "B04",
+        "B08"
+      ],
+      "input_channels": 4,
+      "native_resolution_m": 10
+    },
+    "validation": [
+      "Validate file format",
+      "Validate number of bands",
+      "Validate image dimensions",
+      "Validate numeric datatype",
+      "Validate geospatial metadata when present",
+      "Reject unsupported imagery clearly",
+      "Never silently map arbitrary RGB bands into Sentinel-2 bands"
+    ]
+  },
+
+  "super_resolution": {
+    "model": "LDSR-S2",
+    "type": "diffusion-based super resolution",
+    "scale": 4,
+    "input_patch_size": 128,
+    "output_patch_size": 512,
+    "sampling_steps": 100,
+    "overlap": 12,
+    "output_description": "~2.5m equivalent super-resolved representation",
+    "scientific_warning": "Do not describe the generated output as true observed 2.5m imagery."
+  },
+
+  "uncertainty": {
+    "method": "LDSR-S2 multiple samples",
+    "samples": 5,
+    "output": [
+      "mean super-resolved image",
+      "standard deviation uncertainty map",
+      "uncertainty statistics"
+    ]
+  },
+
+  "evaluation": {
+    "metrics_when_reference_exists": [
+      "PSNR",
+      "SSIM",
+      "SAM"
+    ],
+    "additional_metrics": [
+      "spectral consistency",
+      "spatial detail / gradient energy",
+      "uncertainty statistics"
+    ],
+    "critical_rule": "If no valid high-resolution reference is available, do not fabricate PSNR, SSIM, SAM, or any other reference-dependent metric.",
+    "ui_behavior_without_reference": "Clearly display that reference-based metrics are unavailable for this upload."
+  },
+
+  "geospatial_features": {
+    "urban_planning": {
+      "features": [
+        "built-up area visualization",
+        "urban spatial-detail analysis",
+        "spectral statistics",
+        "spatial gradient/detail comparison",
+        "potential urban expansion/change indicators when suitable data exists"
+      ],
+      "warning": "Do not present these as validated operational urban-planning predictions unless corresponding ground truth exists."
+    },
+
+    "crop_monitoring": {
+      "features": [
+        "NDVI",
+        "vegetation statistics",
+        "vegetation visualization",
+        "native-vs-SR spectral consistency",
+        "crop-region analysis when suitable input data exists"
+      ],
+      "warning": "Do not claim crop monitoring accuracy without appropriate ground-truth validation."
+    },
+
+    "disaster_management": {
+      "features": [
+        "before/after image comparison when two compatible images are provided",
+        "change visualization",
+        "potential affected-area visualization",
+        "uncertainty overlay",
+        "change statistics"
+      ],
+      "warning": "Do not present this as a validated operational disaster-detection system without disaster-specific ground truth."
+    }
+  },
+
+  "backend": {
+    "preferred_stack": "FastAPI",
+    "requirements": [
+      "REST API",
+      "background processing",
+      "job IDs",
+      "progress/status endpoint",
+      "upload validation",
+      "secure temporary storage",
+      "result storage",
+      "download endpoints",
+      "never expose model checkpoints",
+      "never allow arbitrary filesystem paths from the client"
+    ],
+
+    "api": [
+      "GET /api/health",
+      "POST /api/process",
+      "GET /api/jobs/{job_id}",
+      "GET /api/results/{job_id}",
+      "GET /api/results/{job_id}/original",
+      "GET /api/results/{job_id}/sr",
+      "GET /api/results/{job_id}/uncertainty",
+      "GET /api/results/{job_id}/metrics"
+    ],
+
+    "large_scene_processing": "Process large images in tiles and stitch outputs. Never attempt to place an entire 10980x10980 scene into a single GPU tensor."
+  },
+
+  "frontend": {
+    "preferred_stack": "React + TypeScript + Vite",
+    "requirements": [
+      "satellite image upload",
+      "input metadata display",
+      "band validation status",
+      "processing progress",
+      "original image preview",
+      "4x SR preview",
+      "uncertainty map",
+      "evaluation metrics",
+      "urban planning analysis",
+      "crop monitoring analysis",
+      "disaster management analysis",
+      "download results"
+    ],
+
+    "dashboard_sections": [
+      "Upload",
+      "Image Metadata",
+      "Processing Status",
+      "Original Image",
+      "4x Super Resolution",
+      "Uncertainty Map",
+      "Evaluation Metrics",
+      "Urban Planning",
+      "Crop Monitoring",
+      "Disaster Management",
+      "Downloads"
+    ]
+  },
+
+  "scientific_guardrails": [
+    "Never fabricate metrics.",
+    "Never manipulate labels or test data.",
+    "Never claim true observed 2.5m imagery.",
+    "Use the phrase '~2.5m equivalent super-resolved representation'.",
+    "Do not claim WorldCover is genuine 2.5m ground truth.",
+    "Do not claim the current LDSR model improves downstream segmentation.",
+    "Preserve uncertainty estimation.",
+    "Use 100 LDSR diffusion sampling steps.",
+    "Do not replace 100 steps with 10 steps.",
+    "Reuse existing research implementation whenever possible.",
+    "Do not rewrite working P2/P3/P4/P5 scripts unnecessarily."
+  ],
+
+  "copilot_workflow": {
+    "phase_1": "Inspect repository before modifying anything.",
+    "phase_2": "Identify existing frontend/backend and reusable research code.",
+    "phase_3": "Propose architecture and file changes.",
+    "phase_4": "Wait for approval before large implementation.",
+    "phase_5": "Implement backend.",
+    "phase_6": "Implement frontend.",
+    "phase_7": "Connect frontend to backend.",
+    "phase_8": "Test with a manageable satellite tile.",
+    "phase_9": "Document setup and execution commands."
+  },
+
+  "demo_strategy": {
+    "important": true,
+    "description": "The live demonstration should use a manageable satellite tile or region because full 10980x10980 LDSR-S2 inference is computationally expensive.",
+    "do_not": [
+      "run the complete 10980x10980 scene during a live demo",
+      "fake model output",
+      "use fabricated metrics"
+    ]
+  },
+
+  "existing_research_paths": {
+    "p2_inference": "scripts/plan2/infer_ldsr_s2.py",
+    "p3_uncertainty": "scripts/plan3/uncertainty_ldsr_s2.py",
+    "p4": "scripts/plan4",
+    "p5": "scripts/plan5",
+    "segmentation_dataset": "src/pixelsight/data/segmentation/dataset.py",
+    "unet": "src/pixelsight/models/segmentation/unet.py"
+  },
+
+  "copilot_rules": [
+    "First inspect the repository.",
+    "Do not assume React or FastAPI already exist.",
+    "Do not overwrite working research scripts.",
+    "Do not modify datasets.",
+    "Do not modify model checkpoints.",
+    "Do not touch the held-out test set.",
+    "Reuse existing PixelSight research code.",
+    "Keep research scripts separate from application integration code.",
+    "Report every file created or modified.",
+    "Provide exact commands to install, start, and test the application."
+  ]
+}

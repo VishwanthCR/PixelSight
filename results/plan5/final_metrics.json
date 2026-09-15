@@ -1,0 +1,79 @@
+{
+  "project": "PixelSight",
+  "plan": "P5",
+  "p2": {
+    "input_resolution_m": 10.0,
+    "output_resolution_m": 2.5,
+    "scale_factor": 4,
+    "bands": 4,
+    "sampling_steps": 100,
+    "input_size": "512x512",
+    "output_size": "2048x2048",
+    "model": "LDSR-S2"
+  },
+  "p3": {
+    "uncertainty_statistics": {
+      "mean": 0.003319256938993931,
+      "median": 0.002963025588542223,
+      "min": 0.0005779197090305388,
+      "max": 0.04818045720458031,
+      "p90": 0.00521892961114645,
+      "pixels": 262144
+    },
+    "uncertainty_error_relationship": {
+      "high_uncertainty_error_rate": 0.706237,
+      "low_uncertainty_error_rate": 0.531452,
+      "difference_percentage_points": 17.478499999999997,
+      "relative_increase_percent": 32.88820062771425
+    }
+  },
+  "p4": {
+    "urban": {
+      "native_10m_gradient_energy": 0.007364,
+      "bicubic_2p5m_gradient_energy": 0.001941,
+      "ldsr_2p5m_gradient_energy": 0.003489,
+      "ldsr_vs_bicubic_percent": 79.75270479134467,
+      "ldsr_vs_bicubic_ratio": 1.7975270479134466
+    },
+    "crop_ndvi": {
+      "native_ndvi_mae": 0.00734301,
+      "bicubic_ndvi_mae": 0.00765141,
+      "ldsr_ndvi_mae": 0.00734301,
+      "native_ndvi_rmse": 0.00976343,
+      "bicubic_ndvi_rmse": 0.01130433,
+      "ldsr_ndvi_rmse": 0.00976343,
+      "mae_improvement_percent": 4.030629648652998,
+      "rmse_improvement_percent": 13.631059956671468
+    },
+    "segmentation": {
+      "native": {
+        "pixel_accuracy": 0.759766,
+        "mIoU": 0.301203,
+        "dice": 0.396126,
+        "precision": 0.611905,
+        "recall": 0.439686
+      },
+      "ldsr": {
+        "pixel_accuracy": 0.451069,
+        "mIoU": 0.122368,
+        "dice": 0.17583,
+        "precision": 0.31181,
+        "recall": 0.443772
+      }
+    },
+    "segmentation_delta": {
+      "pixel_accuracy": -0.30869700000000005,
+      "mIoU": -0.178835,
+      "dice": -0.220296,
+      "precision": -0.30009500000000006,
+      "recall": 0.0040859999999999785
+    }
+  },
+  "limitations": [
+    "The generated 2.5 m product is a super-resolved representation, not true 2.5 m observed satellite imagery.",
+    "The WorldCover segmentation experiment uses 10 m-scale proxy labels.",
+    "The U-Net was trained on 10 m imagery and directly evaluated on 2.5 m LDSR output; this is not a clean matched-resolution downstream benchmark.",
+    "No disaster-specific ground-truth dataset is currently available in the local dataset tree.",
+    "Independent real high-resolution validation such as SEN2NAIP has not yet been completed."
+  ]
+}
