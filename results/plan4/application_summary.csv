@@ -1,0 +1,2 @@
+native_shape,bicubic_shape,ldsr_shape,native_resolution_m,sr_resolution_m,urban_reference,crop_reference,disaster_status,LDSR_NDVI_MAE_vs_native,Bicubic_NDVI_MAE_vs_native,LDSR_NDVI_RMSE_vs_native,Bicubic_NDVI_RMSE_vs_native
+"(4, 512, 512)","(4, 2048, 2048)","(4, 2048, 2048)",10.0,2.5,WorldCover class 50 (Built-up),WorldCover class 40 (Cropland),No disaster-event ground truth currently available,0.007343009114265442,0.007651406340301037,0.009763428941369057,0.011304331943392754

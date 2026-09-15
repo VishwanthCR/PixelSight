@@ -1,0 +1,4 @@
+application,comparison,metric,LDSR,Bicubic,lower_is_better
+Crop monitoring,LDSR vs Bicubic,NDVI MAE vs native,0.007343009114265442,0.007651406340301037,True
+Crop monitoring,LDSR vs Bicubic,NDVI RMSE vs native,0.009763428941369057,0.011304331943392754,True
+Urban analysis,Spatial detail,Mean gradient energy,0.003489274124149233,0.0019410114909987897,False

@@ -1,1 +1,54 @@
-# PixelSight Segmentation Training Configuration
+seed: 42
+
+data:
+  base_dir: dataset/segmentation/patches
+  train_split: train
+  validation_split: validation
+  test_split: test
+  num_classes: 7
+  input_channels: 4
+  patch_size: 128
+  ignore_index: 255
+
+model:
+  name: unet
+  base_channels: 32
+  input_channels: 4
+  num_classes: 7
+
+training:
+  epochs: 40
+  batch_size: 32
+
+  learning_rate: 0.0001
+
+  weight_decay: 0.0001
+
+  optimizer: adamw
+
+  early_stopping_patience: 8
+
+  loss:
+    name: weighted_cross_entropy
+    ignore_index: 255
+    class_weight_mode: inverse_frequency
+    ce_weight: 1.0
+    dice_weight: 0.0
+
+  num_workers: 4
+  pin_memory: true
+
+checkpoint:
+  directory: checkpoints/segmentation
+  best_model: unet_worldcover_aug_ce_best.pth
+
+evaluation:
+  metrics:
+    - pixel_accuracy
+    - mean_iou
+    - mean_dice
+    - precision
+    - recall
+
+logging:
+  print_frequency: 50
