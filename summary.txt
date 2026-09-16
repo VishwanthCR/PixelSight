@@ -1,0 +1,378 @@
+PixelSight -> urban_satellite_super_resolution framework plan
+============================================================
+
+Purpose
+-------
+This file explains how to evolve the existing PixelSight project into a reusable,
+research-quality framework for uncertainty-aware Sentinel-2 super-resolution and
+urban analysis. It is a planning and configuration document. Existing source files
+are not modified by this document.
+
+Current project status
+---------------------
+Already available:
+- FastAPI web application in backend/app.
+- React/Vite frontend in frontend/.
+- Real LDSR-S2 4x inference path for compatible 4-band Sentinel-2 GeoTIFFs.
+- PNG/JPEG conversion into a 4-band model adapter.
+- Georeferenced SR output and previews.
+- Input-versus-SR PSNR, SSIM, and SAM consistency metrics.
+- Urban land-cover segmentation using the existing trained U-Net.
+- Object-region counts for tree, built-up, water, bare land, and other classes.
+- Input-versus-SR object-count comparison report.
+- SR uncertainty proxy map based on normalized spectral deviation from bicubic.
+- JSON/Markdown reports and frontend visualization.
+- Integrated package under src/urban_satellite_super_resolution/.
+- Synthetic sample generator, YAML configuration, CLI, notebook, and tests.
+
+Important current limitations:
+- The web LDSR-S2 path is deterministic; its uncertainty map is a proxy, not
+  calibrated predictive uncertainty.
+- Input-to-SR metrics are consistency metrics, not independent high-resolution
+  validation metrics.
+- The existing segmentation checkpoint contains land-cover classes, not true
+  individual building, road, or impervious-surface instance labels.
+- House/tree counts are connected-region estimates, not cadastral inventories.
+- The new multi-task baseline requires a trained checkpoint before its outputs
+  can be considered meaningful.
+- Crop and disaster workflows are not complete live application modules.
+
+Target framework architecture
+-----------------------------
+Use one canonical package and make the FastAPI app a thin service layer around it:
+
+src/urban_satellite_super_resolution/
+  config.py              Load and validate YAML configuration
+  data/
+    raster.py            CRS, bounds, transform, nodata, band and alignment checks
+    pairing.py           LR/HR/label pairing by scene and stem
+    tiling.py            Overlapping windows and tile metadata
+    degradation.py       Blur, downsample, noise and compression simulation
+    normalization.py     Training-only band statistics and normalization
+    masks.py             Cloud, shadow, nodata and validity masks
+  models/
+    base.py              Model protocol/interface
+    edsr_multitask.py    Residual CNN + PixelShuffle baseline
+    swinir_adapter.py   Optional existing SwinIR integration
+    ldsr_adapter.py     Existing LDSR-S2 integration
+    segmentation.py      Urban semantic or instance model adapters
+  training/
+    dataset.py           Paired raster dataset and augmentations
+    losses.py            Charbonnier/L1, SSIM, SAM, Dice, focal, Gaussian NLL
+    trainer.py            Batching, validation, checkpointing, AMP and logging
+    splits.py             Geographic train/validation/test split enforcement
+  inference/
+    scene.py              Tiled large-scene inference and stitching
+    uncertainty.py       MC dropout, ensemble, diffusion variation and calibration
+    change.py             Two-date alignment, normalization and change inference
+    outputs.py            Standard output manifest and artifact writer
+  evaluation/
+    image.py              PSNR, SSIM, MAE, RMSE, optional LPIPS
+    spectral.py           SAM per-band and overall spectral metrics
+    segmentation.py      IoU, F1, precision, recall and confusion matrices
+    change.py             Change IoU/F1 and region metrics
+    uncertainty.py       ECE, risk-coverage, correlation and confidence bins
+    aggregation.py        Per scene, city, region and land-cover summaries
+  reporting/
+    report.py             JSON, Markdown and HTML reports
+    plots.py              Comparison, uncertainty, calibration and error plots
+  cli.py                  prepare-data, train, evaluate, infer, generate-report
+
+backend/app/
+  Keep only API concerns here:
+  - Upload validation
+  - Job creation and polling
+  - Calling framework services
+  - Returning artifact manifests
+  - Never place model logic directly in API routes
+
+frontend/src/
+  Keep only presentation concerns here:
+  - Upload and metadata
+  - Processing status
+  - SR comparison
+  - Uncertainty visualization
+  - Urban analysis and metric reports
+  - Artifact downloads
+
+Canonical configuration
+-----------------------
+Use one configuration file for both CLI and API jobs. Start from:
+
+configs/urban_satellite_super_resolution.yaml
+
+Extend it to include:
+
+project:
+  name: urban_satellite_super_resolution
+  version: 0.1.0
+  seed: 42
+  output_root: results/framework
+
+input:
+  bands: [B02, B03, B04, B08]
+  expected_resolution_m: 10
+  scale_factor: 4
+  target_spacing_m: 2.5
+  normalization: training_statistics
+
+preprocessing:
+  tile_size: 128
+  stride: 96
+  overlap: 32
+  resampling_image: bilinear
+  resampling_label: nearest
+  reject_cloud_fraction: 0.10
+  reject_nodata_fraction: 0.10
+  require_crs: true
+  require_alignment: true
+
+model:
+  backend: ldsr_s2
+  fallback_backend: edsr_multitask
+  in_channels: 4
+  out_channels: 4
+  scale: 4
+  sampling_steps: 100
+
+uncertainty:
+  enabled: true
+  method: mc_dropout
+  passes: 20
+  thresholds: [0.33, 0.66]
+  calibration_reference_required: true
+
+urban:
+  enabled: true
+  task: semantic_segmentation
+  classes: [building, road, impervious, vegetation, water]
+  instance_counting: false
+  checkpoint: checkpoints/urban_segmentation.pt
+
+change:
+  enabled: true
+  require_same_crs: true
+  require_same_grid: true
+  threshold: learned_or_validation_calibrated
+
+training:
+  epochs: 100
+  batch_size: 8
+  learning_rate: 0.0002
+  weight_decay: 0.0001
+  mixed_precision: true
+  early_stopping_patience: 10
+  checkpoint_dir: checkpoints/framework
+
+loss:
+  charbonnier_weight: 1.0
+  ssim_weight: 0.1
+  sam_weight: 0.05
+  segmentation_dice_weight: 1.0
+  segmentation_focal_weight: 1.0
+  uncertainty_nll_weight: 0.1
+
+evaluation:
+  lpips_optional: true
+  metrics: [psnr, ssim, mae, rmse, sam, iou, f1, precision, recall, ece]
+  require_independent_reference: true
+  geographic_grouping: [scene, region, city]
+
+Required dataset layout
+-----------------------
+Use scene-level geographic splits. Do not randomly split adjacent patches from
+one scene across train and test.
+
+ data/
+   train/
+     lr/              10 m input rasters or tiles
+     hr/              Independent high-resolution references
+     labels/          Urban semantic labels; 255 means ignore
+     masks/           Cloud, shadow and nodata validity masks
+     metadata/        Scene date, city, CRS, source and split metadata
+   validation/
+     lr/
+     hr/
+     labels/
+     masks/
+     metadata/
+   test/
+     lr/
+     hr/
+     labels/
+     masks/
+     metadata/
+
+Every LR/HR pair must be checked for:
+- CRS equality or documented reprojection.
+- Geographic bounds and grid alignment.
+- Correct pixel spacing.
+- Band order and scale/offset metadata.
+- Nodata and cloud/shadow masks.
+- Scene/date/city identity.
+
+Recommended reference strategy
+------------------------------
+The current same-input evaluation is not sufficient. Add an independent reference
+source suitable for the study area, such as aligned high-resolution aerial or
+satellite imagery. The reference must be spatially and temporally documented.
+
+For every reference pair, record:
+- Source and acquisition date.
+- CRS and transform.
+- Native resolution.
+- Registration method and residual alignment error.
+- Resampling method.
+- Valid mask and cloud/shadow handling.
+- Whether the reference is observed imagery or proxy labels.
+
+Do not call WorldCover or an upsampled 10 m label a true 2.5 m reference.
+
+Model strategy
+--------------
+1. Keep the existing LDSR-S2 path as the production SR baseline.
+2. Add a clean model adapter interface so LDSR-S2, SwinIR, EDSR and diffusion
+   models expose the same predict() contract.
+3. Train the MultiTaskUrbanSR baseline only after paired data and labels are
+   available.
+4. Save checkpoints with model name, config hash, dataset version, date, seed,
+   and validation metrics.
+5. Use tiled inference for large scenes. Never load a complete large Sentinel-2
+   scene into one GPU tensor.
+6. Preserve original geospatial metadata and update transform for the 4x grid.
+
+Uncertainty strategy
+--------------------
+Implement two clearly separated modes:
+
+Research mode:
+- Run true stochastic inference: MC dropout, diffusion seeds, or model ensemble.
+- Save mean SR, per-band standard deviation, confidence classes and calibration
+  metadata.
+- Evaluate uncertainty against independent reference error.
+- Report ECE, risk-coverage, uncertainty-error correlation and accuracy by bin.
+
+Application mode:
+- If the LDSR-S2 path is deterministic, label the output exactly as a
+  reconstruction-disagreement proxy.
+- Do not call it calibrated predictive uncertainty.
+- Show the proxy method in every report and dashboard.
+
+Urban analysis strategy
+-----------------------
+Phase 1: semantic land-cover analysis.
+- Use building/built-up, vegetation, water and other classes.
+- Report pixel coverage and connected-region estimates.
+- Clearly label connected regions as estimates, not individual houses or trees.
+
+Phase 2: object-level planning analysis.
+- Acquire building-footprint and road labels.
+- Train instance segmentation or object detection models.
+- Count individual buildings and tree crowns only when labels and resolution
+  support that claim.
+- Report confidence per object and minimum mapping unit.
+
+Change detection strategy
+-------------------------
+For two dates:
+1. Validate CRS, bounds, transform and band alignment.
+2. Apply identical normalization and cloud/shadow masking.
+3. Estimate radiometric normalization between dates.
+4. Run a validated change model or calibrated threshold.
+5. Export change probability, change mask, uncertainty and affected area.
+6. Evaluate IoU/F1 only when change labels exist.
+7. Never describe raw absolute image difference as validated urban change.
+
+Evaluation and reporting contract
+---------------------------------
+Every report should contain:
+- Input source, date, CRS, bounds and pixel spacing.
+- Model name, version, checkpoint and configuration hash.
+- Preprocessing operations and masks.
+- Output pixel spacing and explicit model-derived disclaimer.
+- PSNR/SSIM/MAE/RMSE/SAM against independent HR reference when available.
+- Urban IoU/F1/precision/recall by class and region.
+- Change metrics when labels exist.
+- Uncertainty calibration and risk-coverage results.
+- Low-confidence area percentage.
+- Per-scene, region and city aggregation.
+- Links to every GeoTIFF, PNG, JSON, Markdown and HTML artifact.
+
+The frontend should distinguish these statuses:
+- Independent reference validation available.
+- Input-to-SR consistency only.
+- Proxy uncertainty only.
+- Calibrated uncertainty available.
+- Urban semantic estimate.
+- Validated object-level count.
+
+Implementation order
+--------------------
+Phase 1: unify configuration and artifact manifest.
+Phase 2: move all raster validation, tiling and normalization into the framework package.
+Phase 3: implement DataLoader-based paired training with geographic split checks.
+Phase 4: add validation loop, checkpoint metadata, early stopping and plots.
+Phase 5: connect trained model adapters to the FastAPI job runner.
+Phase 6: add independent reference evaluation and regional aggregation.
+Phase 7: replace connected-component house counts with instance segmentation.
+Phase 8: add calibrated uncertainty and confidence-aware reporting.
+Phase 9: add validated two-date change detection.
+Phase 10: add crop and disaster modules with their own labels and metrics.
+
+Verification checklist
+----------------------
+Before claiming the expected solution is complete:
+- [ ] No inference uses an untrained random model.
+- [ ] Independent HR reference data exists for test scenes.
+- [ ] LR/HR alignment is numerically validated.
+- [ ] Geographic leakage checks pass.
+- [ ] Cloud, shadow and nodata masks are applied.
+- [ ] Output GeoTIFF transform and CRS are correct.
+- [ ] Uncertainty is either calibrated or explicitly labeled proxy.
+- [ ] Urban classes have appropriate labels.
+- [ ] House/tree counts are not claimed as individual objects without instance labels.
+- [ ] Change detection has labels or is explicitly called exploratory.
+- [ ] Metrics are reported per scene, region and class.
+- [ ] Reports include limitations and artifact links.
+- [ ] Full tests run for data, model, inference, georeferencing and metrics.
+
+Current recommended commands
+----------------------------
+From the repository root:
+
+  . .\.venv\Scripts\Activate.ps1
+  $env:PYTHONPATH='src;.'
+
+  # Generate local synthetic data
+  python scripts/urban_satellite_super_resolution.py prepare-data --output data/synthetic
+
+  # Train the framework baseline after adding real paired data
+  python scripts/urban_satellite_super_resolution.py train --config configs/urban_satellite_super_resolution.yaml
+
+  # Run inference with a verified checkpoint
+  python scripts/urban_satellite_super_resolution.py infer --input data/test/lr/scene.tif --output results/framework/scene --checkpoint checkpoints/framework/model.pt --passes 20
+
+  # Run tests
+  pytest tests/test_urban_satellite_super_resolution.py tests/test_api/test_app.py -q
+
+  # Run the web application
+  python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 --reload
+
+  # In another terminal
+  cd frontend
+  & "C:\Program Files\nodejs\npm.cmd" run dev -- --host 127.0.0.1 --port 4174 --strictPort
+
+Final assessment
+----------------
+The current project is a strong working prototype and demonstration framework:
+- It performs real 4x LDSR-S2 processing.
+- It preserves geospatial output metadata.
+- It visualizes urban segmentation, object-region comparisons and uncertainty.
+- It produces reports and a usable frontend.
+
+It is not yet a fully validated research framework matching every part of the
+expected solution. The most important next step is to obtain independent,
+properly aligned high-resolution reference imagery and train/evaluate models on
+geographically separated paired data. Until then, describe outputs as inferred
+model products, consistency measurements, exploratory urban estimates and
+uncertainty proxies rather than validated fine-scale observations.

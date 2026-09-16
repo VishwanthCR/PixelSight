@@ -43,7 +43,9 @@ def inspect_raster(path: Path, filename: str | None = None) -> InspectionRespons
                 )
 
             if src.width < MODEL_SIZE or src.height < MODEL_SIZE:
-                errors.append(f"Image must be at least {MODEL_SIZE}x{MODEL_SIZE} pixels.")
+                warnings.append(
+                    f"Image is smaller than the {MODEL_SIZE}x{MODEL_SIZE} model tile; it will be padded during analysis."
+                )
             if src.crs is None:
                 errors.append("A CRS is required for geospatial processing.")
             if abs(src.transform.a) == 0 or abs(src.transform.e) == 0:

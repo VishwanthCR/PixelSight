@@ -41,10 +41,11 @@ class JobStore:
             self._jobs[job_id].update(values)
 
     def submit(self, job_id: str, function: Callable[[], None]) -> None:
+        self.update(job_id, status="processing", stage="queued", progress=0.0)
         self._executor.submit(self._run, job_id, function)
 
     def _run(self, job_id: str, function: Callable[[], None]) -> None:
-        self.update(job_id, status="processing")
+        self.update(job_id, status="processing", stage="queued", progress=0.0)
         try:
             function()
         except Exception as exc:

@@ -1,0 +1,44 @@
+project:
+  name: urban_satellite_super_resolution
+  seed: 42
+  version: 0.1.0
+
+data:
+  root: data
+  input_bands: [B02, B03, B04, B08]
+  scale: 4
+  tile_size: 128
+  stride: 96
+  ignore_index: 255
+  normalization: training_statistics_only
+
+model:
+  in_channels: 4
+  out_channels: 4
+  urban_classes: 5
+  features: 48
+  blocks: 6
+  dropout: 0.15
+  scale: 4
+
+training:
+  epochs: 1
+  batch_size: 1
+  learning_rate: 0.0002
+  checkpoint: checkpoints/urban_satellite_super_resolution.pt
+
+loss:
+  sr_weight: 1.0
+  ssim_weight: 0.1
+  sam_weight: 0.05
+  segmentation_weight: 1.0
+  uncertainty_weight: 0.1
+  ignore_index: 255
+
+inference:
+  mc_dropout_passes: 20
+  confidence_thresholds: [0.05, 0.15]
+
+validation:
+  lpips_optional: true
+  geographically_separated_splits: true

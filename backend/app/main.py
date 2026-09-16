@@ -1,11 +1,17 @@
+import io
+import json
 from pathlib import Path
 import tempfile
 import time
-import json
 from typing import Annotated
 
+import numpy as np
+import rasterio
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
+from PIL import Image
+from rasterio.transform import from_origin
+from skimage.metrics import peak_signal_noise_ratio, structural_similarity
 
 from backend.app.config import ALLOWED_SUFFIXES, MAX_UPLOAD_BYTES, RESULTS_ROOT
 from backend.app.schemas import (
@@ -18,22 +24,71 @@ from backend.app.schemas import (
 from backend.app.services.jobs import JobStore
 from backend.app.services.raster import inspect_raster, preprocess_raster
 from backend.app.services.reporting import write_report
+from backend.app.services.urban import compare_urban_analysis, run_urban_analysis
+from backend.app.services.uncertainty import generate_uncertainty_map
 from backend.app.services.visualization import save_rgb_preview
 
 
 app = FastAPI(title="PixelSight API", version="0.1.0")
 jobs = JobStore(RESULTS_ROOT)
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _safe_suffix(filename: str | None) -> str:
     suffix = Path(filename or "").suffix.lower()
     if suffix not in ALLOWED_SUFFIXES:
-        raise HTTPException(status_code=415, detail="Only .tif and .tiff files are supported.")
+        raise HTTPException(
+            status_code=415,
+            detail="Only GeoTIFF/TIFF and common image files (.tif, .tiff, .png, .jpg, .jpeg, .bmp) are supported.",
+        )
     return suffix
+
+
+async def _convert_image_to_raster(upload: UploadFile, destination: Path) -> None:
+    content = await upload.read()
+    if not content:
+        raise HTTPException(status_code=422, detail="Uploaded image is empty.")
+    try:
+        image = Image.open(io.BytesIO(content)).convert("RGB")
+    except Exception as exc:  # pragma: no cover - external decoding failure
+        raise HTTPException(status_code=422, detail=f"Unable to decode uploaded image: {exc}") from exc
+
+    minimum_size = 128
+    if image.width < minimum_size or image.height < minimum_size:
+        image = image.resize((max(image.width, minimum_size), max(image.height, minimum_size)), Image.Resampling.BICUBIC)
+    array = np.asarray(image, dtype=np.float32) / 255.0
+    if array.ndim == 2:
+        array = np.stack([array] * 3, axis=-1)
+    red = array[:, :, 0].astype(np.float32)
+    green = array[:, :, 1].astype(np.float32)
+    blue = array[:, :, 2].astype(np.float32)
+    nir = np.clip((red + green + blue) / 3.0, 0.0, 1.0)
+    bands = np.stack([blue, green, red, nir], axis=0)
+
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with rasterio.open(
+        destination,
+        "w",
+        driver="GTiff",
+        height=bands.shape[1],
+        width=bands.shape[2],
+        count=4,
+        dtype="float32",
+        crs="EPSG:4326",
+        transform=from_origin(0.0, bands.shape[1], 1.0, 1.0),
+    ) as dataset:
+        dataset.write(bands)
+        for index, name in enumerate(("B02", "B03", "B04", "B08"), start=1):
+            dataset.set_band_description(index, name)
 
 
 async def _save_upload(upload: UploadFile, destination: Path) -> None:
     _safe_suffix(upload.filename)
+    suffix = Path(upload.filename or "").suffix.lower()
+    if suffix in {".png", ".jpg", ".jpeg", ".bmp"}:
+        await _convert_image_to_raster(upload, destination)
+        return
+
     total = 0
     destination.parent.mkdir(parents=True, exist_ok=True)
     with destination.open("wb") as output:
@@ -47,6 +102,77 @@ async def _save_upload(upload: UploadFile, destination: Path) -> None:
 
 def _job_response(job: dict) -> JobResponse:
     return JobResponse(**{key: job[key] for key in ("job_id", "status", "stage", "progress", "error", "outputs")})
+
+
+def _calculate_sam(prediction: np.ndarray, target: np.ndarray) -> float | None:
+    pred = np.asarray(prediction, dtype=np.float32).reshape(-1, prediction.shape[-1])
+    true = np.asarray(target, dtype=np.float32).reshape(-1, target.shape[-1])
+    pred_norm = np.linalg.norm(pred, axis=1)
+    true_norm = np.linalg.norm(true, axis=1)
+    valid = (pred_norm > 1e-8) & (true_norm > 1e-8)
+    if not np.any(valid):
+        return None
+    pred = pred[valid]
+    true = true[valid]
+    pred_norm = np.linalg.norm(pred, axis=1)
+    true_norm = np.linalg.norm(true, axis=1)
+    cosine = np.sum(pred * true, axis=1) / np.maximum(pred_norm * true_norm, 1e-12)
+    cosine = np.clip(cosine, -1.0, 1.0)
+    return float(np.degrees(np.mean(np.arccos(cosine))))
+
+
+def _resample_reference_to_output(reference_path: Path, output_shape: tuple[int, int]) -> np.ndarray:
+    with rasterio.open(reference_path) as src:
+        reference = src.read().astype(np.float32)
+    if reference.size == 0:
+        raise ValueError("Reference image contains no pixel values.")
+    if np.nanmax(reference) > 1.5:
+        reference = reference / 10000.0
+    reference = np.clip(reference, 0.0, 1.0)
+    if reference.shape[0] > 4:
+        reference = reference[:4]
+    bands = []
+    for band in reference:
+        image = Image.fromarray(np.clip(band * 255.0, 0, 255).astype(np.uint8), mode="L")
+        resized = image.resize((output_shape[1], output_shape[0]), Image.BICUBIC)
+        bands.append(np.asarray(resized, dtype=np.float32) / 255.0)
+    return np.stack(bands, axis=-1)
+
+
+def _evaluate_reference(sr_path: Path, reference_path: Path) -> dict:
+    try:
+        with rasterio.open(sr_path) as sr_src:
+            sr = np.moveaxis(sr_src.read(), 0, -1).astype(np.float32)
+        if np.nanmax(sr) > 1.5:
+            sr = sr / 10000.0
+        sr = np.clip(sr, 0.0, 1.0)
+        ref = _resample_reference_to_output(reference_path, sr.shape[:2])
+        if not np.isfinite(sr).all() or not np.isfinite(ref).all():
+            return {
+                "status": "reference_unavailable",
+                "psnr": None,
+                "ssim": None,
+                "sam": None,
+                "reason": "Input image contains non-finite values after preprocessing.",
+            }
+        psnr = float(peak_signal_noise_ratio(ref, sr, data_range=1.0))
+        ssim = float(structural_similarity(ref, sr, channel_axis=-1, data_range=1.0))
+        sam = _calculate_sam(sr, ref)
+        return {
+            "status": "reference_available",
+            "psnr": psnr,
+            "ssim": ssim,
+            "sam": sam,
+            "reason": "Computed by comparing the original uploaded input against the generated 4x output after resampling the input to the SR grid.",
+        }
+    except Exception as exc:  # pragma: no cover - defensive branch
+        return {
+            "status": "reference_unavailable",
+            "psnr": None,
+            "ssim": None,
+            "sam": None,
+            "reason": f"Input-to-output evaluation failed: {exc}",
+        }
 
 
 @app.get("/api/v1/health", response_model=HealthResponse)
@@ -100,9 +226,41 @@ async def process(upload: Annotated[UploadFile, File(...)]) -> JobResponse:
         _, preprocessing_operations = preprocess_raster(input_path, normalized_path)
         jobs.update(job_id, stage="super_resolution", progress=20.0)
         output_files, device = _run_super_resolution(job_id, job_dir, normalized_path)
+        jobs.update(job_id, stage="urban_analysis", progress=92.0)
+        sr_path = job_dir / output_files["super_resolution"]
+        uncertainty = generate_uncertainty_map(
+            normalized_path,
+            sr_path,
+            job_dir / "uncertainty" / "uncertainty_map.tif",
+            job_dir / "uncertainty" / "uncertainty_map.png",
+        )
+        urban_analysis = run_urban_analysis(
+            sr_path,
+            job_dir / "analysis" / "urban_planning_map.png",
+            classified_output=job_dir / "analysis" / "urban_classes.tif",
+            checkpoint_path=PROJECT_ROOT / "checkpoints" / "segmentation" / "unet_worldcover_best.pth",
+            device=device,
+        )
+        input_urban_analysis = run_urban_analysis(
+            normalized_path,
+            job_dir / "analysis" / "input_urban_planning_map.png",
+            classified_output=job_dir / "analysis" / "input_urban_classes.tif",
+            checkpoint_path=PROJECT_ROOT / "checkpoints" / "segmentation" / "unet_worldcover_best.pth",
+            device=device,
+        )
+        urban_analysis["comparison"] = compare_urban_analysis(input_urban_analysis, urban_analysis)
         jobs.update(job_id, stage="reporting", progress=95.0)
         report_path = job_dir / "report" / "report.json"
         output_files["original"] = f"input/{input_path.name}"
+        output_files["urban_planning_map"] = "analysis/urban_planning_map.png"
+        output_files["urban_classification"] = "analysis/urban_classes.tif"
+        output_files["uncertainty_map"] = "uncertainty/uncertainty_map.png"
+        output_files["uncertainty_geotiff"] = "uncertainty/uncertainty_map.tif"
+
+        evaluation = {"status": "reference_unavailable", "psnr": None, "ssim": None, "sam": None, "reason": "The original input was not usable for evaluation after preprocessing."}
+        evaluation = _evaluate_reference(sr_path, normalized_path)
+        output_files["input_reference"] = "preprocessing/normalized.tif"
+
         report = write_report(
             report_path,
             job_id=job_id,
@@ -111,8 +269,12 @@ async def process(upload: Annotated[UploadFile, File(...)]) -> JobResponse:
             runtime_seconds=time.perf_counter() - started,
             device=device,
             output_files=output_files,
+            evaluation=evaluation,
+            urban_analysis=urban_analysis,
+            uncertainty=uncertainty,
         )
         output_files["report"] = "report/report.json"
+        reference_available = evaluation.get("status") == "reference_available"
         jobs.update(
             job_id,
             status="completed",
@@ -123,14 +285,18 @@ async def process(upload: Annotated[UploadFile, File(...)]) -> JobResponse:
                 "original_preview": "input/original_preview.png",
                 "super_resolution_preview": "super_resolution/sr_preview.png",
                 "report": "report/report.json",
-                "uncertainty": False,
-                "segmentation": False,
-                "evaluation": False,
+                "uncertainty": uncertainty,
+                "uncertainty_map": "uncertainty/uncertainty_map.png",
+                "uncertainty_geotiff": "uncertainty/uncertainty_map.tif",
+                "segmentation": True,
+                "urban_analysis": urban_analysis,
+                "urban_classification": output_files["urban_classification"],
+                "urban_planning_map": output_files["urban_planning_map"],
+                "input_urban_classification": "analysis/input_urban_classes.tif",
+                "evaluation": reference_available,
                 "runtime_seconds": report["runtime"]["seconds"],
-                "limitations": [
-                    "Uncertainty and segmentation services are not yet wired into the application job pipeline.",
-                    "Reference-dependent evaluation is unavailable without a valid high-resolution reference.",
-                ],
+                "limitations": report["scientific_limitations"],
+                "input_reference": output_files.get("input_reference"),
             },
         )
 
@@ -174,6 +340,7 @@ def _run_super_resolution(job_id: str, job_dir: Path, input_path: Path) -> tuple
         "super_resolution": "super_resolution/sr.tif",
         "original_preview": "input/original_preview.png",
         "super_resolution_preview": "super_resolution/sr_preview.png",
+            "urban_planning_map": "analysis/urban_planning_map.png",
     }, device
 
 

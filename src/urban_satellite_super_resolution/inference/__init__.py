@@ -1,0 +1,1 @@
+"""Scene inference and output writing."""
