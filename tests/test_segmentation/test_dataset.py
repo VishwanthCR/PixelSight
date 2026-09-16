@@ -1,9 +1,14 @@
 """
 Tests for PixelSight segmentation dataset.
+
+These tests validate the actual segmentation dataset when it is available.
+The dataset is intentionally not required for a fresh repository clone, so
+the entire module is skipped when the dataset has not been downloaded.
 """
 
 from pathlib import Path
 
+import pytest
 import torch
 
 from pixelsight.data.segmentation.dataset import (
@@ -16,6 +21,25 @@ from pixelsight.data.segmentation.dataset import (
 
 
 DATASET_ROOT = Path("dataset/segmentation/patches")
+
+
+# ---------------------------------------------------------------------------
+# Dataset availability
+# ---------------------------------------------------------------------------
+#
+# The segmentation dataset is a research/data dependency and is not stored
+# in the Git repository. Therefore, a fresh clone can run the rest of the
+# automated test suite without having this dataset.
+#
+# When the dataset is present, all tests below run normally and validate
+# the expected dataset structure and contents.
+# ---------------------------------------------------------------------------
+
+if not (DATASET_ROOT / "train").exists():
+    pytest.skip(
+        "Segmentation dataset not available; skipping dataset-dependent tests.",
+        allow_module_level=True,
+    )
 
 
 def test_train_dataset_exists():
