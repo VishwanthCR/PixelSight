@@ -12,7 +12,14 @@ dependencies:
   - matplotlib=3.11.2
   - pyyaml=6.0.3
   - tqdm=4.67.1
+  - rasterio
+  - boto3
+  - requests
+  - pillow
   - pip
   - pip:
       - torch==2.14.0
       - torchvision==0.29.0
+      - omegaconf
+      - opensr-model
+      - opensr-utils
