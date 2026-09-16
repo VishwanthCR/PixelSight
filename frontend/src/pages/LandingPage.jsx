@@ -25,8 +25,10 @@ export default function LandingPage({ file, inspection, onSelectFile, onProcess,
           <div><div className="font-bold text-white tracking-tight">PixelSight</div><div className="text-[10px] text-cyan-400 uppercase tracking-[0.22em]">LDSR-S2 framework</div></div>
         </div>
         <div className="flex items-center gap-2 text-xs">
-          <span className={`w-2 h-2 rounded-full ${health?.status === 'ok' ? 'bg-emerald-400' : 'bg-amber-400'}`} />
-          <span className="text-slate-500">{health?.status === 'ok' ? 'Backend online' : 'Checking backend'}</span>
+          <span className={`w-2 h-2 rounded-full ${health?.status === 'ok' ? 'bg-emerald-400' : health?.status === 'offline' ? 'bg-red-400' : 'bg-amber-400'}`} />
+          <span className="text-slate-500">
+            {health?.status === 'ok' ? 'Backend online' : health?.status === 'offline' ? 'Backend offline' : 'Checking backend'}
+          </span>
         </div>
       </header>
 
@@ -34,16 +36,16 @@ export default function LandingPage({ file, inspection, onSelectFile, onProcess,
         <div className="pt-4 anim-fade-up">
           <div className="text-xs text-cyan-400 font-bold uppercase tracking-[0.24em] mb-5">Satellite image processing</div>
           <h1 className="text-4xl md:text-6xl font-bold text-white leading-[1.05] tracking-tight mb-6">From native pixels<br /><span className="text-cyan-300">to sharper evidence.</span></h1>
-          <p className="text-slate-400 text-lg leading-relaxed max-w-xl">Upload a compatible Sentinel-2 GeoTIFF. PixelSight will inspect it, preprocess it, run the real LDSR-S2 model, and return a georeferenced 4x super-resolved representation (~2.5m equivalent).</p>
-          <div className="mt-8 flex flex-wrap gap-3 text-xs text-slate-500"><span className="tag">4 bands: B02 · B03 · B04 · B08</span><span className="tag">100 diffusion steps</span><span className="tag">12px tile overlap</span></div>
+          <p className="text-slate-400 text-lg leading-relaxed max-w-xl">Upload a PNG, JPEG, or compatible Sentinel-2 GeoTIFF. PixelSight converts ordinary images into the model's four-band input, runs the real LDSR-S2 model, and returns a georeferenced 4x super-resolved representation (~2.5m equivalent).</p>
+          <div className="mt-8 flex flex-wrap gap-3 text-xs text-slate-500"><span className="tag">PNG · JPEG · GeoTIFF</span><span className="tag">4-band model adapter</span><span className="tag">urban planning counts</span></div>
         </div>
 
         <div className="space-y-5 anim-fade-up" style={{ animationDelay: '0.08s' }}>
           <div className={`upload-zone p-8 md:p-12 text-center ${dragging ? 'drag-over' : ''}`} onClick={() => inputRef.current?.click()} onDragOver={event => { event.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={event => { event.preventDefault(); setDragging(false); choose(event.dataTransfer.files?.[0]); }}>
-            <input ref={inputRef} type="file" accept=".tif,.tiff" className="hidden" onChange={event => { choose(event.target.files?.[0]); event.target.value = ''; }} />
+            <input ref={inputRef} type="file" accept=".png,.jpg,.jpeg,.tif,.tiff" className="hidden" onChange={event => { choose(event.target.files?.[0]); event.target.value = ''; }} />
             <div className="w-14 h-14 mx-auto rounded-2xl flex items-center justify-center mb-5" style={{ background: 'rgba(6,182,212,0.1)', border: '1px solid rgba(6,182,212,0.3)' }}><Upload className="w-7 h-7 text-cyan-400" /></div>
             <div className="text-lg font-semibold text-white">{file ? file.name : 'Drop a GeoTIFF scene here'}</div>
-            <div className="text-sm text-slate-500 mt-2">{file ? 'Select another file to replace it' : 'or click to browse · .tif and .tiff only'}</div>
+            <div className="text-sm text-slate-500 mt-2">{file ? 'Select another file to replace it' : 'or click to browse · PNG, JPEG, or GeoTIFF'}</div>
           </div>
 
           {inspection && (

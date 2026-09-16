@@ -51,3 +51,9 @@ Thumbs.db
 # Logs
 # =========================
 *.log
+
+# Generated PixelSight framework runs
+results/framework/
+
+# Old nested frontend backup
+SR_PixelSight/

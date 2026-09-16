@@ -16,7 +16,23 @@ export default function App() {
   const [health,        setHealth]        = useState(null);
 
   useEffect(() => {
-    fetchHealth().then(setHealth).catch(() => null);
+    let cancelled = false;
+
+    const pollHealth = async () => {
+      try {
+        const next = await fetchHealth();
+        if (!cancelled) setHealth(next);
+      } catch {
+        if (!cancelled) setHealth({ status: 'offline' });
+      }
+    };
+
+    pollHealth();
+    const timer = window.setInterval(pollHealth, 3000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
   }, []);
 
   useEffect(() => {
