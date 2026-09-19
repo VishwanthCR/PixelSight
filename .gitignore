@@ -55,5 +55,14 @@ Thumbs.db
 # Generated PixelSight framework runs
 results/framework/
 
+# Environment files and credentials
+.env
+.env.*
+!.env.example
+backend/.env
+backend/.env.*
+!backend/.env.example
+
 # Old nested frontend backup
 SR_PixelSight/
+

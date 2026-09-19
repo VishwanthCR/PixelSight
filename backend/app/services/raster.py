@@ -119,6 +119,8 @@ def preprocess_raster(source: Path, destination: Path) -> tuple[InspectionRespon
             operations.append({"operation": "clip_reflectance", "range": [0.0, 1.0]})
         image = clipped
 
+        profile.pop("blockxsize", None)
+        profile.pop("blockysize", None)
         profile.update(dtype="float32", count=4, compress="deflate", tiled=False)
         destination.parent.mkdir(parents=True, exist_ok=True)
         with rasterio.open(destination, "w", **profile) as dst:

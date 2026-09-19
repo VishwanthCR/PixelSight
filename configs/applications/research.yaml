@@ -1,0 +1,22 @@
+application: research
+name: "Research / Core Engine"
+description: "Diffusion-based 4x super-resolution and uncertainty estimation for Sentinel-2 10m imagery"
+model:
+  name: "LDSR-S2"
+  scale: 4
+  patch_size: 128
+  overlap: 12
+  sampling_steps: 100
+bands:
+  expected: ["B02", "B03", "B04", "B08"]
+  count: 4
+uncertainty:
+  enabled: true
+  method: "stochastic_diffusion_variance"
+reporting:
+  formats: ["json", "markdown", "html"]
+outputs:
+  geotiff: true
+  preview: true
+  manifest: true
+scientific_label: "Research-grade 4x representation (~2.5 m equivalent)"

@@ -14,14 +14,24 @@ class JobStore:
         self._lock = threading.Lock()
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="pixelsight")
 
-    def create(self) -> tuple[str, Path]:
+    def create(self, application: str = "research") -> tuple[str, Path]:
         job_id = f"ps_{uuid.uuid4().hex[:8]}"
         job_dir = self.results_root / job_id
-        for name in ("input", "preprocessing", "super_resolution", "uncertainty", "segmentation", "analysis", "report"):
+        for name in (
+            "input",
+            "preprocessing",
+            "super_resolution",
+            "uncertainty",
+            "segmentation",
+            "analysis",
+            "application",
+            "report",
+        ):
             (job_dir / name).mkdir(parents=True, exist_ok=True)
         with self._lock:
             self._jobs[job_id] = {
                 "job_id": job_id,
+                "application": application,
                 "status": "queued",
                 "stage": "queued",
                 "progress": 0.0,
@@ -38,7 +48,8 @@ class JobStore:
 
     def update(self, job_id: str, **values: Any) -> None:
         with self._lock:
-            self._jobs[job_id].update(values)
+            if job_id in self._jobs:
+                self._jobs[job_id].update(values)
 
     def submit(self, job_id: str, function: Callable[[], None]) -> None:
         self.update(job_id, status="processing", stage="queued", progress=0.0)

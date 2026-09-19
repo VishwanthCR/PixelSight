@@ -211,3 +211,152 @@ def run_urban_analysis(
             "RGB PNG/JPEG uploads use a luminance-derived NIR proxy, so planning estimates are less reliable than true Sentinel-2 B08 input.",
         ],
     }
+
+
+def run_urban_pipeline(
+    native_path: Path,
+    sr_path: Path,
+    job_dir: Path,
+    *,
+    device: str = "cpu",
+    checkpoint_path: Path | None = None,
+) -> dict:
+    """
+    Dedicated urban analysis pipeline executing segmentation across native and SR rasters,
+    producing built-up masks, difference rasters, previews, and neutral comparative statistics.
+    """
+    import json
+    import rasterio
+
+    ckpt = checkpoint_path or (
+        Path(__file__).resolve().parents[3] / "checkpoints" / "segmentation" / "unet_worldcover_best.pth"
+    )
+    urban_dir = job_dir / "application" / "urban"
+    previews_dir = urban_dir / "previews"
+    urban_dir.mkdir(parents=True, exist_ok=True)
+    previews_dir.mkdir(parents=True, exist_ok=True)
+
+    sr_seg_tif = urban_dir / "segmentation_sr.tif"
+    sr_seg_png = previews_dir / "segmentation_sr.png"
+    native_seg_tif = urban_dir / "segmentation_native.tif"
+    native_seg_png = previews_dir / "segmentation_native.png"
+    builtup_tif = urban_dir / "builtup.tif"
+    builtup_png = previews_dir / "builtup_preview.png"
+    diff_tif = urban_dir / "urban_difference.tif"
+    diff_png = previews_dir / "urban_difference.png"
+
+    # 1. Run segmentation on SR and Native
+    sr_analysis = run_urban_analysis(
+        sr_path,
+        sr_seg_png,
+        classified_output=sr_seg_tif,
+        checkpoint_path=ckpt,
+        device=device,
+    )
+    native_analysis = run_urban_analysis(
+        native_path,
+        native_seg_png,
+        classified_output=native_seg_tif,
+        checkpoint_path=ckpt,
+        device=device,
+    )
+
+    # 2. Extract predictions for masks and differences
+    with rasterio.open(sr_seg_tif) as src:
+        sr_pred = src.read(1)
+        sr_profile = src.profile.copy()
+
+    with rasterio.open(native_seg_tif) as src:
+        native_pred = src.read(1)
+
+    # 3. Built-up mask (class 4)
+    builtup_mask = (sr_pred == BUILT_UP_CLASS).astype(np.uint8)
+    sr_profile.update(count=1, dtype="uint8", nodata=255, compress="deflate")
+    with rasterio.open(builtup_tif, "w", **sr_profile) as dst:
+        dst.write(builtup_mask, 1)
+        dst.set_band_description(1, "Built-up mask (1=built-up, 0=other)")
+
+    # Built-up preview
+    builtup_rgb = np.zeros((*builtup_mask.shape, 3), dtype=np.uint8)
+    builtup_rgb[builtup_mask == 1] = [220, 70, 50]  # Red for built-up
+    builtup_rgb[builtup_mask == 0] = [30, 40, 50]   # Dark slate for background
+    Image.fromarray(builtup_rgb).save(builtup_png, format="PNG")
+
+    # 4. Difference map
+    sr_h, sr_w = sr_pred.shape
+    native_img = Image.fromarray(native_pred)
+    native_resampled = np.asarray(native_img.resize((sr_w, sr_h), Image.NEAREST), dtype=np.uint8)
+    diff_mask = (sr_pred != native_resampled).astype(np.uint8)
+
+    with rasterio.open(diff_tif, "w", **sr_profile) as dst:
+        dst.write(diff_mask, 1)
+        dst.set_band_description(1, "Segmentation difference (1=disagreement, 0=agreement)")
+
+    diff_rgb = np.zeros((*diff_mask.shape, 3), dtype=np.uint8)
+    diff_rgb[diff_mask == 1] = [240, 200, 60]  # Yellow for reclassified
+    diff_rgb[diff_mask == 0] = [40, 45, 55]    # Dark for consistent
+    Image.fromarray(diff_rgb).save(diff_png, format="PNG")
+
+    # 5. Indicators & Summary
+    total_pixels = max(int(sr_pred.size), 1)
+    veg_mask = np.isin(sr_pred, [0, 1, 2, 3])
+    water_mask = (sr_pred == 6)
+    bare_mask = (sr_pred == 5)
+
+    veg_pixels = int(veg_mask.sum())
+    water_pixels = int(water_mask.sum())
+    bare_pixels = int(bare_mask.sum())
+    built_pixels = int(builtup_mask.sum())
+
+    comparison = compare_urban_analysis(native_analysis, sr_analysis)
+
+    result = {
+        "application": "urban",
+        "scientific_status": "Model-output comparison",
+        "indicators": {
+            "built_up_area_pixels": built_pixels,
+            "built_up_fraction": float(built_pixels / total_pixels),
+            "vegetation_area_pixels": veg_pixels,
+            "vegetation_fraction": float(veg_pixels / total_pixels),
+            "water_area_pixels": water_pixels,
+            "water_fraction": float(water_pixels / total_pixels),
+            "bare_area_pixels": bare_pixels,
+            "bare_fraction": float(bare_pixels / total_pixels),
+            "connected_built_up_regions": sr_analysis.get("houses", 0),
+            "connected_tree_regions": sr_analysis.get("trees", 0),
+        },
+        "class_distribution": {
+            CLASS_NAMES[cid]: {
+                "label": DISPLAY_NAMES[CLASS_NAMES[cid]],
+                "pixel_count": int((sr_pred == cid).sum()),
+                "percent": float((sr_pred == cid).sum() / total_pixels * 100.0),
+            }
+            for cid in range(NUM_CLASSES)
+        },
+        "comparison": comparison,
+        "interpretations": [
+            f"Built-up area covers {built_pixels / total_pixels * 100.0:.1f}% across {sr_analysis.get('houses', 0)} connected cluster(s).",
+            f"Vegetation canopy (trees/shrub/grass/crop) covers {veg_pixels / total_pixels * 100.0:.1f}% of the scene.",
+            "Downstream segmentation results reflect model inference patterns; PixelSight research establishes that LDSR does not outperform bicubic baselines on standardized land-cover metrics.",
+        ],
+        "limitations": [
+            "Segmentation is performed by a UNet trained on ESA WorldCover land-cover classes, not cadastral building surveys.",
+            "Output differences between native and SR representations indicate neural model sensitivity, NOT observed physical land-use transformation.",
+        ],
+        "outputs": {
+            "segmentation_native_geotiff": "application/urban/segmentation_native.tif",
+            "segmentation_sr_geotiff": "application/urban/segmentation_sr.tif",
+            "builtup_mask_geotiff": "application/urban/builtup.tif",
+            "urban_difference_geotiff": "application/urban/urban_difference.tif",
+            "segmentation_native_preview": "application/urban/previews/segmentation_native.png",
+            "segmentation_sr_preview": "application/urban/previews/segmentation_sr.png",
+            "builtup_preview": "application/urban/previews/builtup_preview.png",
+            "urban_difference_preview": "application/urban/previews/urban_difference.png",
+            "metrics": "application/urban/metrics.json",
+        },
+    }
+
+    metrics_path = urban_dir / "metrics.json"
+    metrics_path.write_text(json.dumps(result, indent=2), encoding="utf-8")
+    return result
+

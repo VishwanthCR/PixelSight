@@ -28,3 +28,10 @@ urban-sr = "urban_satellite_super_resolution.cli:main"
 [tool.setuptools.packages.find]
 where = ["src", "."]
 include = ["pixelsight*", "urban_satellite_super_resolution*", "backend*"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+markers = [
+    "integration: marks live integration tests that require Copernicus network credentials",
+]
