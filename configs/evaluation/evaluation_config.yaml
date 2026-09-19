@@ -1,0 +1,134 @@
+# PixelSight Scientific Evaluation Configuration
+# ================================================
+# Controls all evaluation experiment parameters.
+# Keep this file separate from production configs.
+# Do NOT modify to improve numbers on the test set.
+
+project:
+  name: PixelSight
+  version: "1.0"
+  problem_statement: SIH26142
+  description: >
+    Uncertainty-Aware, Spectral-Spatial-Geospatial and Downstream-Task-Aware
+    Satellite Super-Resolution Evaluation Framework
+
+# ---------------------------------------------------------------------------
+# Model provenance (for reproducibility records)
+# ---------------------------------------------------------------------------
+model:
+  name: LDSR-S2
+  checkpoint: opensr-ldsrs2_v1_0_0.ckpt
+  sampling_steps: 100          # DO NOT CHANGE — production setting
+  scale: 4                     # 10m -> 2.5m equivalent
+  input_patch_size: 128
+  bands: [B02, B03, B04, B08]
+  input_resolution_m: 10.0
+  output_resolution_m: 2.5
+  output_description: "4× super-resolved representation (~2.5 m equivalent)"
+
+# ---------------------------------------------------------------------------
+# Uncertainty configuration
+# ---------------------------------------------------------------------------
+uncertainty:
+  mechanism: stochastic_diffusion_variation
+  description: >
+    Pixel-wise standard deviation across N independent LDSR-S2 runs with
+    different random seeds.  This is NOT MC-dropout uncertainty.
+  n_samples: 5
+  seeds: [0, 1, 2, 3, 4]
+  # Region thresholds (if null, defaults to p33/p67 of the uncertainty map)
+  low_threshold: null
+  high_threshold: null
+  results_dir: results/plan3
+
+# ---------------------------------------------------------------------------
+# HR reference availability
+# ---------------------------------------------------------------------------
+hr_reference:
+  available: false
+  source: null
+  note: >
+    No genuine independent high-resolution reference (e.g. SEN2NAIP) is
+    currently available.  All HR-reference metrics (PSNR, SSIM, SAM, MAE,
+    RMSE vs HR) report null / unavailable.
+    Input-to-SR diagnostics are labeled as consistency diagnostics, NOT
+    reconstruction accuracy.
+
+# ---------------------------------------------------------------------------
+# Spectral indices
+# ---------------------------------------------------------------------------
+spectral:
+  ndvi:
+    red_band_idx: 2   # B04
+    nir_band_idx: 3   # B08
+    note: B08 must come from genuine Sentinel-2 data.  Do NOT synthesise NIR.
+
+# ---------------------------------------------------------------------------
+# Data paths (relative to project root)
+# ---------------------------------------------------------------------------
+data:
+  native_geotiff: dataset/plan2/geotiff/train_test_512_10m.tif
+  sr_geotiff: dataset/plan2/geotiff/sr.tif
+  native_patch: dataset/plan2/patches/train/patch_00000.npz
+  sr_patch_npy: results/plan3/mean_sr.npy
+  uncertainty_map_npy: results/plan3/uncertainty_map.npy
+  std_sr_npy: results/plan3/std_sr.npy
+  segmentation_image: dataset/segmentation/patches/train/images/r00000_c00000.npy
+  segmentation_label: dataset/segmentation/patches/train/labels/r00000_c00000.npy
+  segmentation_checkpoint: checkpoints/segmentation/unet_worldcover_best.pth
+  worldcover_label: dataset/segmentation/aligned_labels/train_B02_B03_B04_B08_10m_worldcover_aligned.tif
+  downstream_comparison_json: results/plan4/downstream_comparison.json
+  ndvi_consistency_csv: results/plan4/ndvi_consistency.csv
+  spatial_detail_csv: results/plan4/spatial_detail_comparison.csv
+
+# ---------------------------------------------------------------------------
+# Downstream evaluation
+# ---------------------------------------------------------------------------
+downstream:
+  segmentation:
+    num_classes: 7
+    ignore_index: 255
+    class_names: [Tree, Shrubland, Grassland, Cropland, Built-up, Bare, Water]
+    label_is_proxy: true
+    methodological_note: >
+      The U-Net was trained on 10 m imagery and evaluated on 2.5 m SR output.
+      WorldCover labels are 10 m-scale proxy labels.  The direct-transfer
+      experiment does not represent a clean matched-resolution benchmark.
+      Negative results are reported as valid findings.
+  ndvi:
+    red_band_idx: 2
+    nir_band_idx: 3
+    cropland_class: 40    # WorldCover Cropland class value
+  urban:
+    builtup_class: 50     # WorldCover Built-up class value
+
+# ---------------------------------------------------------------------------
+# Output directories
+# ---------------------------------------------------------------------------
+output:
+  comparisons: results/comparisons
+  evaluations: results/evaluations
+  reliability: results/reliability
+  uncertainty: results/uncertainty
+
+# ---------------------------------------------------------------------------
+# Experiment settings
+# ---------------------------------------------------------------------------
+experiment:
+  seed: 42
+  dry_run: false   # Set true to run without writing outputs
+  verbose: true
+
+# ---------------------------------------------------------------------------
+# Scientific terminology enforcement
+# ---------------------------------------------------------------------------
+terminology:
+  sr_output_description: "4× super-resolved representation (~2.5 m equivalent)"
+  uncertainty_mechanism: "stochastic diffusion variation"
+  low_reliability_label: "reconstruction-risk region"
+  forbidden_terms:
+    - "true 2.5m imagery"
+    - "genuine 2.5m"
+    - "hallucinated"
+    - "predictive uncertainty"  # unless genuinely Bayesian
+    - "MC-dropout"              # unless model actually uses MC-dropout

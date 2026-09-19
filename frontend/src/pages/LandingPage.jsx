@@ -1,66 +1,222 @@
-import React, { useRef, useState } from 'react';
-import { CheckCircle2, FileImage, ScanSearch, Upload, Zap } from 'lucide-react';
+import React from 'react';
+import {
+  Sprout,
+  Building2,
+  Flame,
+  Zap,
+  ArrowRight,
+  ShieldCheck,
+  Globe2,
+  Sparkles,
+  Layers,
+  Activity,
+  Cpu
+} from 'lucide-react';
 
-const fields = [
-  ['Bands', inspection => inspection?.band_names?.join(' / ') || '—'],
-  ['Dimensions', inspection => inspection ? `${inspection.width} × ${inspection.height}` : '—'],
-  ['Resolution', inspection => inspection?.resolution ? `${inspection.resolution[0]}m × ${inspection.resolution[1]}m` : '—'],
-  ['CRS', inspection => inspection?.crs || '—'],
-  ['Datatype', inspection => inspection?.dtype || '—'],
+const APPLICATIONS = [
+  {
+    id: 'crop',
+    title: 'Crop Monitoring',
+    category: 'Agricultural Intelligence',
+    desc: 'Multispectral B04 (Red) & B08 (NIR) vegetation index analysis, sub-field crop stress mapping, and canopy vigor quantification.',
+    badge: '4× NDVI Representation',
+    icon: Sprout,
+    color: '#10b981',
+    gradient: 'from-emerald-500/20 via-sky-500/10 to-transparent',
+    border: 'border-emerald-500/30 hover:border-emerald-400',
+    btnBg: 'bg-emerald-600 hover:bg-emerald-500',
+    features: ['Native vs 4× SR NDVI', 'Canopy Stress Fractions', 'Radiometric Consistency'],
+  },
+  {
+    id: 'urban',
+    title: 'Urban Analysis',
+    category: 'Infrastructure & Land Cover',
+    desc: 'ESA WorldCover 7-class deep segmentation, built-up footprint extraction, urban sprawl density, and building cluster resolution.',
+    badge: '7-Class Segmentation',
+    icon: Building2,
+    color: '#f59e0b',
+    gradient: 'from-amber-500/20 via-sky-500/10 to-transparent',
+    border: 'border-amber-500/30 hover:border-amber-400',
+    btnBg: 'bg-amber-600 hover:bg-amber-500',
+    features: ['WorldCover 7 Classes', 'Built-up Area Fractions', 'Boundary Delineation'],
+  },
+  {
+    id: 'disaster',
+    title: 'Disaster Management',
+    category: 'Emergency & Resilience',
+    desc: 'Bitemporal Sentinel-2 acquisition matching, automated CRS alignment, spectral change vector tracking, and damage zone reliability.',
+    badge: 'Dual-Scene Bitemporal',
+    icon: Flame,
+    color: '#f43f5e',
+    gradient: 'from-rose-500/20 via-amber-500/10 to-transparent',
+    border: 'border-rose-500/30 hover:border-rose-400',
+    btnBg: 'bg-rose-600 hover:bg-rose-500',
+    features: ['Pre/Post Event Alignment', 'Spectral Change Vectors', 'Uncertainty Reliability Map'],
+  },
 ];
 
-export default function LandingPage({ file, inspection, onSelectFile, onProcess, health }) {
-  const inputRef = useRef(null);
-  const [dragging, setDragging] = useState(false);
-
-  function choose(nextFile) {
-    if (nextFile) onSelectFile(nextFile);
-  }
-
+export default function LandingPage({
+  onSelectApplication,
+  health,
+}) {
   return (
-    <main className="min-h-screen px-5 py-6 md:px-10" style={{ background: 'radial-gradient(ellipse 80% 50% at 50% -10%, rgba(6,182,212,0.11), transparent 70%), #050a14' }}>
-      <header className="max-w-6xl mx-auto flex items-center justify-between mb-16">
+    <main
+      className="min-h-screen px-5 py-8 md:px-12 flex flex-col justify-between"
+      style={{
+        background:
+          'radial-gradient(ellipse 80% 50% at 50% -10%, rgba(6,182,212,0.12), transparent 70%), #050a14',
+      }}
+    >
+      {/* Top Navigation Header */}
+      <header className="max-w-6xl w-full mx-auto flex items-center justify-between pb-6 border-b border-white/[0.06]">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: 'linear-gradient(135deg,#0891b2,#1d4ed8)' }}><Zap className="w-5 h-5 text-white" /></div>
-          <div><div className="font-bold text-white tracking-tight">PixelSight</div><div className="text-[10px] text-cyan-400 uppercase tracking-[0.22em]">LDSR-S2 framework</div></div>
+          <div
+            className="w-10 h-10 rounded-2xl flex items-center justify-center shadow-lg shadow-cyan-500/20"
+            style={{ background: 'linear-gradient(135deg,#0891b2,#1d4ed8)' }}
+          >
+            <Globe2 className="w-5 h-5 text-white" />
+          </div>
+          <div>
+            <div className="font-extrabold text-white text-lg tracking-tight flex items-center gap-2">
+              PIXELSIGHT
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-300 border border-cyan-500/30 uppercase font-mono tracking-widest">
+                Copernicus Integrated
+              </span>
+            </div>
+            <div className="text-[11px] text-slate-400 font-medium tracking-wide">
+              Sentinel-2 Satellite Intelligence Platform
+            </div>
+          </div>
         </div>
-        <div className="flex items-center gap-2 text-xs">
-          <span className={`w-2 h-2 rounded-full ${health?.status === 'ok' ? 'bg-emerald-400' : health?.status === 'offline' ? 'bg-red-400' : 'bg-amber-400'}`} />
-          <span className="text-slate-500">
-            {health?.status === 'ok' ? 'Backend online' : health?.status === 'offline' ? 'Backend offline' : 'Checking backend'}
+
+        {/* Status indicator */}
+        <div className="flex items-center gap-2.5 px-3 py-1.5 rounded-xl bg-slate-900/80 border border-slate-800 text-xs">
+          <span
+            className={`w-2 h-2 rounded-full ${
+              health?.status === 'ok'
+                ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.6)]'
+                : health?.status === 'offline'
+                ? 'bg-red-400'
+                : 'bg-amber-400 animate-pulse'
+            }`}
+          />
+          <span className="text-slate-400 font-medium">
+            {health?.status === 'ok' ? 'Copernicus & GPU Ready' : 'Connecting to Core API...'}
           </span>
         </div>
       </header>
 
-      <section className="max-w-6xl mx-auto grid lg:grid-cols-[1.05fr_0.95fr] gap-10 items-start">
-        <div className="pt-4 anim-fade-up">
-          <div className="text-xs text-cyan-400 font-bold uppercase tracking-[0.24em] mb-5">Satellite image processing</div>
-          <h1 className="text-4xl md:text-6xl font-bold text-white leading-[1.05] tracking-tight mb-6">From native pixels<br /><span className="text-cyan-300">to sharper evidence.</span></h1>
-          <p className="text-slate-400 text-lg leading-relaxed max-w-xl">Upload a PNG, JPEG, or compatible Sentinel-2 GeoTIFF. PixelSight converts ordinary images into the model's four-band input, runs the real LDSR-S2 model, and returns a georeferenced 4x super-resolved representation (~2.5m equivalent).</p>
-          <div className="mt-8 flex flex-wrap gap-3 text-xs text-slate-500"><span className="tag">PNG · JPEG · GeoTIFF</span><span className="tag">4-band model adapter</span><span className="tag">urban planning counts</span></div>
+      {/* Main Hero & Selection Section */}
+      <div className="max-w-6xl w-full mx-auto my-12 space-y-12">
+        {/* Title Banner */}
+        <div className="text-center space-y-4 max-w-2xl mx-auto">
+          <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 text-xs font-bold tracking-widest uppercase">
+            <Sparkles className="w-3.5 h-3.5" /> Next-Generation Earth Observation
+          </div>
+          <h1 className="text-4xl md:text-5xl lg:text-6xl font-black text-white tracking-tight leading-[1.08]">
+            Choose what you want <br className="hidden sm:block" />
+            <span className="bg-gradient-to-r from-sky-400 via-cyan-300 to-emerald-400 bg-clip-text text-transparent">
+              to analyze
+            </span>
+          </h1>
+          <p className="text-slate-400 text-sm md:text-base leading-relaxed">
+            Direct integration with the Copernicus Data Space Ecosystem (CDSE). Select an AOI on the interactive map or upload multispectral Sentinel-2 GeoTIFF data for 4× super-resolution representation (~2.5 m equivalent).
+          </p>
         </div>
 
-        <div className="space-y-5 anim-fade-up" style={{ animationDelay: '0.08s' }}>
-          <div className={`upload-zone p-8 md:p-12 text-center ${dragging ? 'drag-over' : ''}`} onClick={() => inputRef.current?.click()} onDragOver={event => { event.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={event => { event.preventDefault(); setDragging(false); choose(event.dataTransfer.files?.[0]); }}>
-            <input ref={inputRef} type="file" accept=".png,.jpg,.jpeg,.tif,.tiff" className="hidden" onChange={event => { choose(event.target.files?.[0]); event.target.value = ''; }} />
-            <div className="w-14 h-14 mx-auto rounded-2xl flex items-center justify-center mb-5" style={{ background: 'rgba(6,182,212,0.1)', border: '1px solid rgba(6,182,212,0.3)' }}><Upload className="w-7 h-7 text-cyan-400" /></div>
-            <div className="text-lg font-semibold text-white">{file ? file.name : 'Drop a GeoTIFF scene here'}</div>
-            <div className="text-sm text-slate-500 mt-2">{file ? 'Select another file to replace it' : 'or click to browse · PNG, JPEG, or GeoTIFF'}</div>
+        {/* 3 Primary Application Cards (Rule 3) */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {APPLICATIONS.map((app) => {
+            const Icon = app.icon;
+            return (
+              <div
+                key={app.id}
+                className={`group relative rounded-3xl p-6 bg-gradient-to-b ${app.gradient} bg-slate-900/90 border ${app.border} shadow-2xl transition-all duration-300 hover:-translate-y-1.5 flex flex-col justify-between`}
+              >
+                <div>
+                  <div className="flex items-center justify-between mb-4">
+                    <div
+                      className="w-12 h-12 rounded-2xl flex items-center justify-center shadow-md transition-transform group-hover:scale-110"
+                      style={{
+                        backgroundColor: `${app.color}20`,
+                        border: `1px solid ${app.color}40`,
+                        color: app.color,
+                      }}
+                    >
+                      <Icon className="w-6 h-6" />
+                    </div>
+                    <span className="text-[10px] uppercase font-bold tracking-wider px-2.5 py-1 rounded-full bg-slate-800/90 border border-slate-700/60 text-slate-300">
+                      {app.badge}
+                    </span>
+                  </div>
+
+                  <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+                    {app.category}
+                  </div>
+                  <h2 className="text-xl font-black text-white mb-2 group-hover:text-cyan-200 transition-colors">
+                    {app.title}
+                  </h2>
+                  <p className="text-xs text-slate-400 leading-relaxed mb-6">
+                    {app.desc}
+                  </p>
+
+                  {/* Feature Pills */}
+                  <div className="space-y-1.5 mb-8">
+                    {app.features.map((feat, idx) => (
+                      <div key={idx} className="flex items-center gap-2 text-xs text-slate-300">
+                        <div className="w-1.5 h-1.5 rounded-full bg-cyan-400" />
+                        <span>{feat}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Primary Launch Action */}
+                <button
+                  onClick={() => onSelectApplication(app.id)}
+                  className={`w-full py-3.5 px-4 rounded-xl ${app.btnBg} text-white font-bold text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-2 shadow-lg hover:shadow-cyan-500/20 active:scale-95`}
+                >
+                  <span>Launch {app.title}</span>
+                  <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-1" />
+                </button>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Secondary / Advanced Section: Research Engine Studio */}
+        <div className="p-6 rounded-3xl bg-slate-900/60 border border-slate-800 hover:border-slate-700 transition-colors flex flex-wrap items-center justify-between gap-6">
+          <div className="flex items-center gap-4 max-w-xl">
+            <div className="p-3 rounded-2xl bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 flex-shrink-0">
+              <Cpu className="w-6 h-6" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-sm font-bold text-white">Advanced Research & Model Exploration</span>
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-300 border border-cyan-500/30 uppercase font-mono">
+                  100 Steps Diffusion
+                </span>
+              </div>
+              <p className="text-xs text-slate-400 leading-relaxed">
+                Full research studio for benchmark validation, Fourier Ring Correlation (FRC), Modulation Transfer Function (MTF), and pixel-level stochastic variance mapping.
+              </p>
+            </div>
           </div>
 
-          {inspection && (
-            <div className="card p-5 anim-fade-in">
-              <div className="flex items-center justify-between mb-4"><div className="flex items-center gap-2 text-sm font-semibold text-white"><ScanSearch className="w-4 h-4 text-cyan-400" /> Inspection</div><span className={`text-xs font-semibold ${inspection.compatible ? 'text-emerald-400' : 'text-red-400'}`}>{inspection.compatible ? 'Compatible' : 'Rejected'}</span></div>
-              <div className="grid grid-cols-2 gap-3">{fields.map(([label, value]) => <div key={label} className="rounded-xl p-3" style={{ background: 'rgba(255,255,255,0.035)' }}><div className="text-[10px] uppercase tracking-wider text-slate-600">{label}</div><div className="text-xs text-slate-300 font-mono mt-1 break-all">{value(inspection)}</div></div>)}</div>
-              {inspection.errors?.length > 0 && <div className="mt-4 text-xs text-red-300 space-y-1">{inspection.errors.map(error => <div key={error}>{error}</div>)}</div>}
-              {inspection.warnings?.length > 0 && <div className="mt-4 text-xs text-amber-300 space-y-1">{inspection.warnings.map(warning => <div key={warning}>{warning}</div>)}</div>}
-            </div>
-          )}
-
-          <button className="btn-primary w-full py-4" disabled={!inspection?.compatible} onClick={onProcess}><CheckCircle2 className="w-5 h-5" /> Run real LDSR-S2 processing</button>
-          <div className="text-center text-xs text-slate-600">The backend performs inference. The browser only displays returned artifacts.</div>
+          <button
+            onClick={() => onSelectApplication('research')}
+            className="px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border border-slate-700 font-bold text-xs uppercase tracking-wider transition-all flex items-center gap-2"
+          >
+            <span>Open Research Studio</span>
+            <ArrowRight className="w-4 h-4" />
+          </button>
         </div>
-      </section>
+      </div>
+
+      {/* Footer */}
+      <footer className="max-w-6xl w-full mx-auto pt-6 border-t border-white/[0.06] text-center text-xs text-slate-500">
+        PixelSight Satellite Intelligence Platform · Powered by Copernicus Data Space Ecosystem & ESA OpenSR LDSR-S2
+      </footer>
     </main>
   );
 }

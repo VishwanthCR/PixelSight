@@ -265,7 +265,7 @@ def run_inference(model, image, device):
 
     print(
         f"Final output range: "
-        f"{output.min():.6f} → {output.max():.6f}"
+        f"{output.min():.6f} -> {output.max():.6f}"
     )
 
     return output
@@ -293,6 +293,8 @@ def save_output(output, output_path, source_profile):
     )
 
     profile = source_profile.copy()
+    profile.pop("blockxsize", None)
+    profile.pop("blockysize", None)
 
     profile.update(
         driver="GTiff",
@@ -305,7 +307,7 @@ def save_output(output, output_path, source_profile):
         ),
         compress="deflate",
         predictor=3,
-        tiled=True,
+        tiled=False,
         BIGTIFF="IF_SAFER",
     )
 
@@ -334,7 +336,7 @@ def verify_output(output_path, expected_bounds):
 
         print("\nOutput verification")
         print("-------------------")
-        print(f"Size        : {src.width} × {src.height}")
+        print(f"Size        : {src.width} x {src.height}")
         print(f"Resolution  : {src.res}")
         print(f"CRS         : {src.crs}")
         print(f"Bands       : {src.count}")

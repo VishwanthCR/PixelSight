@@ -72,7 +72,7 @@ def test_preprocess_normalizes_approved_bands(tmp_path: Path) -> None:
     }
 
 
-def test_png_image_is_converted_to_compatible_raster() -> None:
+def test_png_image_is_rejected_as_incompatible_rgb() -> None:
     buffer = BytesIO()
     Image.new("RGB", (128, 128), color=(10, 20, 30)).save(buffer, format="PNG")
     buffer.seek(0)
@@ -82,13 +82,9 @@ def test_png_image_is_converted_to_compatible_raster() -> None:
         files={"upload": ("scene.png", buffer, "image/png")},
     )
 
-    assert response.status_code == 200
-    body = response.json()
-    assert body["compatible"] is True
-    assert body["bands"] == 4
-    assert body["band_names"] == ["B02", "B03", "B04", "B08"]
-    assert body["dtype"] == "float32"
-    assert body["requires_preprocessing"] is False
+    assert response.status_code == 422
+    assert "RGB input is not compatible with the current Sentinel-2 LDSR-S2 model" in response.json()["detail"]
+
 
 
 def test_non_raster_extension_is_rejected() -> None:

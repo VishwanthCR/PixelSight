@@ -1,0 +1,45 @@
+application: urban
+name: "Urban Analysis"
+description: "Land-cover classification and built-environment structure analysis across native and 4x super-resolved satellite imagery"
+bands:
+  expected: ["B02", "B03", "B04", "B08"]
+segmentation:
+  enabled: true
+  model: "unet_worldcover"
+  patch_size: 128
+  num_classes: 7
+  classes:
+    0: "tree"
+    1: "shrubland"
+    2: "grassland"
+    3: "cropland"
+    4: "built_up"
+    5: "bare"
+    6: "water"
+  built_up_class: 4
+  tree_class: 0
+  minimum_object_pixels: 2
+indicators:
+  - "built_up_area"
+  - "vegetation_area"
+  - "water_area"
+  - "bare_area"
+  - "class_distribution"
+  - "built_up_fraction"
+  - "vegetation_fraction"
+  - "connected_built_up_regions"
+outputs:
+  geotiff:
+    - "segmentation_native.tif"
+    - "segmentation_sr.tif"
+    - "builtup.tif"
+    - "urban_difference.tif"
+  preview:
+    - "urban_planning_map.png"
+    - "input_urban_planning_map.png"
+  metrics: "metrics.json"
+  report: true
+scientific_status: "Model-output comparison"
+limitations:
+  - "PixelSight research demonstrates that LDSR-S2 does not outperform bicubic interpolation on standardized downstream segmentation benchmarks; report reflects measured output without claiming SR segmentation accuracy enhancement."
+  - "Class masks reflect deep-learning segmentation predictions, not ground-surveyed cadastral boundaries."

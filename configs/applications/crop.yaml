@@ -1,0 +1,38 @@
+application: crop
+name: "Crop Monitoring"
+description: "Agricultural vegetation health and crop-condition analysis using genuine Sentinel-2 B04/B08 NDVI at native and 4x super-resolved representations"
+bands:
+  required: ["B04", "B08"]
+  recommended: ["B02", "B03", "B04", "B08"]
+indices:
+  ndvi:
+    enabled: true
+    formula: "(B08 - B04) / (B08 + B04)"
+    clamp: [-1.0, 1.0]
+    stress_threshold: 0.2
+    dense_vegetation_threshold: 0.6
+uncertainty:
+  enabled: true
+  method: "sr_uncertainty_propagation"
+analysis:
+  consistency_metrics: ["mae", "rmse", "mean_bias"]
+  category_interpretations:
+    low: "low vegetation-index region"
+    stress: "potential vegetation-stress region"
+    moderate: "moderate vegetation density"
+    dense: "dense green vegetation canopy"
+outputs:
+  geotiff:
+    - "ndvi_native.tif"
+    - "ndvi_sr.tif"
+    - "ndvi_difference.tif"
+  preview:
+    - "ndvi_native.png"
+    - "ndvi_sr.png"
+    - "ndvi_difference.png"
+  metrics: "metrics.json"
+  report: true
+scientific_status: "Native-vs-SR consistency analysis"
+limitations:
+  - "Low NDVI indicates low red/NIR reflectance contrast; it does not constitute clinical plant pathology or disease diagnosis without field ground truth."
+  - "SR NDVI is computed from model-predicted reflectance and represents a synthetic 4x spatial representation (~2.5 m equivalent), not an observed high-resolution measurement."

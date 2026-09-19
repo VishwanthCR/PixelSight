@@ -1,0 +1,37 @@
+application: disaster
+name: "Disaster Management"
+description: "Temporal pre/post-event change detection, potential affected area mapping, and uncertainty-aware impact analysis"
+mode: "temporal"
+bands:
+  expected: ["B02", "B03", "B04", "B08"]
+alignment:
+  required: true
+  method: "reproject_and_match_grid"
+change_detection:
+  enabled: true
+  baseline: "spectral_difference_magnitude"
+  threshold_sigma: 2.0
+  relative_threshold: 0.15
+uncertainty:
+  enabled: true
+  reliability_categories:
+    lower_uncertainty: "< 0.35"
+    moderate_uncertainty: "0.35 - 0.65"
+    high_uncertainty: "> 0.65"
+outputs:
+  geotiff:
+    - "pre_event/sr_pre.tif"
+    - "post_event/sr_post.tif"
+    - "change_map.tif"
+    - "affected_area.tif"
+    - "uncertainty.tif"
+  preview:
+    - "previews/change_preview.png"
+    - "previews/pre_sr_preview.png"
+    - "previews/post_sr_preview.png"
+  metrics: "metrics.json"
+  report: true
+scientific_status: "Research analysis — no independent ground truth"
+limitations:
+  - "Detected changes reflect radiometric/spectral differences between pre- and post-event acquisitions (which may include seasonal phenology, illumination variance, and atmospheric effects), not verified structural damage."
+  - "Categorization thresholds are configuration-driven heuristics and do not constitute certified operational civil defense limits without ground validation."
