@@ -7,6 +7,7 @@ import {
   Thermometer, Radar, Map,
 } from 'lucide-react';
 import CompareSlider from '../components/CompareSlider.jsx';
+import EvaluationMetricsPanel from '../components/EvaluationMetricsPanel.jsx';
 import { resultFileUrl } from '../api/srmApi.js';
 
 // ─── Utility components ────────────────────────────────────────────────────
@@ -296,14 +297,76 @@ function UncertaintyTab({ file, report, outputs }) {
   );
 }
 
+const ESA_CLASSES = [
+  { id: 0, name: 'Tree', color: '#28b45a', desc: 'Trees & closed forest canopy' },
+  { id: 1, name: 'Shrubland', color: '#78aa50', desc: 'Shrub and bush formations' },
+  { id: 2, name: 'Grassland', color: '#aad264', desc: 'Natural herbaceous vegetation' },
+  { id: 3, name: 'Cropland', color: '#dcbe46', desc: 'Cultivated agricultural fields' },
+  { id: 4, name: 'Built-up', color: '#d25a37', desc: 'Impervious structures & building clusters' },
+  { id: 5, name: 'Bare', color: '#96876e', desc: 'Bare soil, sand, and rock surfaces' },
+  { id: 6, name: 'Water', color: '#327dd2', desc: 'Permanent and seasonal open water' },
+  { id: 255, name: 'Ignore', color: '#1e293b', desc: 'No-data / unclassified background mask' },
+];
+
 function SegmentationTab({ file, report, outputs }) {
   const urban = report.urban_analysis || outputs.urban_analysis || {};
+  const hasUrbanData = Boolean(urban.map || outputs.urban_planning_map || urban.object_counts || urban.trees);
   const planningMap = file(urban.map || outputs.urban_planning_map || 'analysis/urban_planning_map.png');
   const classifiedRaster = file(urban.classified_raster || outputs.urban_classification || 'analysis/urban_classes.tif');
   const inputPlanningMap = file(outputs.input_urban_planning_map || 'analysis/input_urban_planning_map.png');
   const comparison = urban.comparison || {};
   const comparisonRows = Object.entries(comparison.classes || {});
   const maximumCount = Math.max(1, ...comparisonRows.flatMap(([, item]) => [item.input_object_count || 0, item.sr_object_count || 0]));
+
+  if (!hasUrbanData) {
+    return (
+      <div className="space-y-6">
+        <SectionHeader
+          title="Land Cover Classification"
+          subtitle="WorldCover-proxy segmentation applied to the SR output."
+          badge="unavailable"
+        />
+        <div className="rounded-2xl p-6 bg-amber-950/20 border border-amber-500/30 space-y-4">
+          <div className="flex items-center gap-2.5 text-amber-300 font-bold text-sm">
+            <AlertTriangle className="w-5 h-5 text-amber-400" />
+            <span>Classification unavailable for this job</span>
+          </div>
+          <div className="grid md:grid-cols-3 gap-4 text-xs">
+            <div className="p-3.5 rounded-xl bg-slate-900/60 border border-white/[0.04]">
+              <span className="font-bold text-amber-300 uppercase tracking-wider text-[10px] block mb-1">Reason</span>
+              <p className="text-slate-300">Segmentation was either not selected for this application pipeline or the model checkpoint was not engaged.</p>
+            </div>
+            <div className="p-3.5 rounded-xl bg-slate-900/60 border border-white/[0.04]">
+              <span className="font-bold text-amber-300 uppercase tracking-wider text-[10px] block mb-1">Expected Resource</span>
+              <p className="text-slate-300 font-mono text-[11px]">checkpoints/segmentation/unet_worldcover_best.pth</p>
+            </div>
+            <div className="p-3.5 rounded-xl bg-slate-900/60 border border-white/[0.04]">
+              <span className="font-bold text-amber-300 uppercase tracking-wider text-[10px] block mb-1">How to Run</span>
+              <p className="text-slate-300">Run through the dedicated Land Cover Classification application or ensure the UNet weights are mounted.</p>
+            </div>
+          </div>
+        </div>
+
+        {/* 7-Class Guide */}
+        <div className="card p-5 space-y-3">
+          <span className="text-xs uppercase font-bold tracking-wider text-slate-400 block">
+            Supported ESA WorldCover Land-Cover Classes
+          </span>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+            {ESA_CLASSES.map(c => (
+              <div key={c.id} className="flex items-center gap-2.5 p-2 rounded-xl bg-slate-900/50 border border-white/[0.04] text-xs">
+                <span className="w-3.5 h-3.5 rounded-md flex-shrink-0" style={{ backgroundColor: c.color }} />
+                <div className="min-w-0">
+                  <span className="font-semibold text-slate-200 block truncate">{c.name}</span>
+                  <span className="text-[10px] text-slate-500 font-mono">ID {c.id}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-8">
@@ -322,7 +385,7 @@ function SegmentationTab({ file, report, outputs }) {
       <div className="grid md:grid-cols-2 gap-6">
         <div className="card p-5">
           <div className="text-xs uppercase tracking-wider text-slate-500 mb-3">SR Output Classification</div>
-          <img src={planningMap} alt="Urban planning map" className="w-full rounded-lg" />
+          <img src={planningMap} alt="Urban planning map" className="w-full rounded-lg" onError={e => e.target.style.display = 'none'} />
           <div className="grid grid-cols-2 gap-2 mt-3">
             <a href={planningMap} download className="btn-ghost text-xs justify-center">
               <Download className="w-3.5 h-3.5" /> PNG
@@ -334,8 +397,21 @@ function SegmentationTab({ file, report, outputs }) {
         </div>
         <div className="card p-5">
           <div className="text-xs uppercase tracking-wider text-slate-500 mb-3">Input Classification</div>
-          <img src={inputPlanningMap} alt="Input classification map" className="w-full rounded-lg" />
+          <img src={inputPlanningMap} alt="Input classification map" className="w-full rounded-lg" onError={e => e.target.style.display = 'none'} />
           <p className="text-xs text-slate-600 mt-2">Segmentation applied directly to the native 10 m input for comparison.</p>
+        </div>
+      </div>
+
+      {/* 7-Class Legend bar */}
+      <div className="card p-4">
+        <div className="text-xs uppercase tracking-wider text-slate-500 font-semibold mb-3">ESA WorldCover 7-Class Scheme</div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          {ESA_CLASSES.map(c => (
+            <div key={c.id} className="flex items-center gap-2 text-xs text-slate-300">
+              <span className="w-3 h-3 rounded" style={{ backgroundColor: c.color }} />
+              <span className="font-medium">{c.name}</span>
+            </div>
+          ))}
         </div>
       </div>
 
@@ -412,72 +488,28 @@ function SegmentationTab({ file, report, outputs }) {
   );
 }
 
-function EvaluationTab({ report }) {
+function EvaluationTab({ report, outputs }) {
   const evaluation = report.evaluation || {};
-  const hasEval = evaluation.status === 'reference_available' &&
-    [evaluation.psnr, evaluation.ssim, evaluation.sam].every(v => Number.isFinite(Number(v)));
+  const uncertainty = report.uncertainty || outputs?.uncertainty || {};
   const interpretation = report.evaluation_interpretation || '';
 
   return (
     <div className="space-y-8">
       <SectionHeader
         title="Image Quality Metrics"
-        subtitle="PSNR, SSIM, and SAM comparing the input (resampled) against the SR output."
-        badge={hasEval ? 'reference_available' : 'reference_unavailable'}
+        subtitle="PSNR, SSIM, SAM and stochastic uncertainty — comprehensive SR quality diagnostics."
+        badge={evaluation.status === 'reference_available' ? 'reference_available' : 'reference_unavailable'}
       />
 
-      {hasEval ? (
-        <>
-          <div className="grid sm:grid-cols-3 gap-4">
-            <Metric label="PSNR" value={`${Number(evaluation.psnr).toFixed(3)} dB`} note="input vs SR output" />
-            <Metric label="SSIM" value={Number(evaluation.ssim).toFixed(4)} note="structural similarity" />
-            <Metric label="SAM" value={`${Number(evaluation.sam).toFixed(3)}°`} note="spectral angle mapper" highlight />
-          </div>
+      {/* Rich evaluation panel with gauge rings */}
+      <EvaluationMetricsPanel evaluation={evaluation} uncertainty={uncertainty} />
 
-          <div className="card p-5 space-y-5">
-            <div className="text-xs uppercase tracking-wider text-slate-500 font-semibold">Metric Visualization</div>
-            <EvaluationBar
-              label="PSNR"
-              value={evaluation.psnr}
-              display={`${Number(evaluation.psnr).toFixed(3)} dB`}
-              scale={50}
-              color="#22d3ee"
-              note="Visual scale capped at 50 dB. Higher is generally better for self-consistency."
-            />
-            <EvaluationBar
-              label="SSIM"
-              value={evaluation.ssim}
-              display={Number(evaluation.ssim).toFixed(4)}
-              scale={1}
-              color="#34d399"
-              note="Scale 0–1. Higher = greater structural similarity between input and SR output."
-            />
-            <EvaluationBar
-              label="SAM (inverted)"
-              value={Math.max(0, 180 - Number(evaluation.sam))}
-              display={`${Number(evaluation.sam).toFixed(3)}°`}
-              scale={180}
-              color="#f59e0b"
-              note="Lower angular error is better. Bar shows 180° − SAM for visual clarity."
-            />
-          </div>
-        </>
-      ) : (
-        <div className="card p-6">
-          <SciNote type="info">
-            {evaluation.reason || 'No high-resolution reference was available. Upload a reference image to compute ground-truth metrics (PSNR, SSIM, SAM).'}
-          </SciNote>
+      {interpretation && (
+        <div className="card p-5">
+          <div className="text-xs uppercase tracking-wider text-slate-500 font-semibold mb-3">Interpretation</div>
+          <p className="text-sm text-slate-400 leading-relaxed">{interpretation}</p>
         </div>
       )}
-
-      <div className="card p-5 space-y-3">
-        <div className="text-xs uppercase tracking-wider text-slate-500 font-semibold">Interpretation</div>
-        <p className="text-sm text-slate-400 leading-relaxed">{interpretation || 'No evaluation interpretation was generated for this job.'}</p>
-        <SciNote type="warning">
-          These metrics compare the uploaded input with the super-resolved output. This is a self-consistency diagnostic —
-          it does NOT constitute validation against an independent observed high-resolution reference.
-        </SciNote>
-      </div>
     </div>
   );
 }
@@ -630,7 +662,7 @@ export default function ResultsDashboard({ job, results, report, onReset }) {
       case 'super_resolution': return <SuperResolutionTab file={file} outputs={outputs} />;
       case 'uncertainty': return <UncertaintyTab file={file} report={report} outputs={outputs} />;
       case 'segmentation': return <SegmentationTab file={file} report={report} outputs={outputs} />;
-      case 'evaluation': return <EvaluationTab report={report} />;
+      case 'evaluation': return <EvaluationTab report={report} outputs={outputs} />;
       case 'scientific': return <ScientificStatusTab report={report} />;
       case 'downloads': return <DownloadsTab file={file} report={report} outputs={outputs} job={job} />;
       default: return null;

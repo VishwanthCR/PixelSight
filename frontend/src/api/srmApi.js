@@ -139,3 +139,51 @@ export async function geocodePlace(query) {
 export async function fetchIndiaBoundary() {
   return request('/copernicus/india-boundary');
 }
+
+// ── Compute / Hardware Profile & Execution Plan ──────────────────────────
+export async function fetchComputeProfile() {
+  return request('/compute/profile');
+}
+
+export async function fetchComputePlan(width = 128, height = 128, batchSize = 1, nImages = 1) {
+  return request(`/compute/plan?width=${width}&height=${height}&batch_size=${batchSize}&n_images=${nImages}`);
+}
+
+// ── Batch Processing & Job Lifecycle ──────────────────────────────────────
+export async function startBatchProcessing(files, application = 'research') {
+  const formData = new FormData();
+  for (const file of files) {
+    formData.append('uploads', file);
+  }
+  formData.append('application', application);
+  return request('/batch/process', { method: 'POST', body: formData });
+}
+
+export async function listBatchJobs(batchId = '') {
+  const qs = batchId ? `?batch_id=${encodeURIComponent(batchId)}` : '';
+  return request(`/batch/jobs${qs}`);
+}
+
+export async function cancelJob(jobId) {
+  return request(`/jobs/${jobId}/cancel`, { method: 'POST' });
+}
+
+export async function retryJob(jobId) {
+  return request(`/jobs/${jobId}/retry`, { method: 'POST' });
+}
+
+// ── Classification & Segmentation ─────────────────────────────────────────
+export async function fetchSegmentationStatus() {
+  return request('/segmentation/status');
+}
+
+export async function startSegmentation(file) {
+  const formData = new FormData();
+  formData.append('upload', file);
+  return request('/segmentation', { method: 'POST', body: formData });
+}
+
+// ── Master Evaluation Report ──────────────────────────────────────────────
+export async function fetchEvaluationReport() {
+  return request('/evaluation/report');
+}

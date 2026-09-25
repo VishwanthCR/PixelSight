@@ -6,6 +6,11 @@ import ResultsDashboard from './pages/ResultsDashboard.jsx';
 import CropMonitoringPage from './pages/CropMonitoringPage.jsx';
 import UrbanAnalysisPage from './pages/UrbanAnalysisPage.jsx';
 import DisasterManagementPage from './pages/DisasterManagementPage.jsx';
+import BatchProcessingPage from './pages/BatchProcessingPage.jsx';
+import ClassificationPage from './pages/ClassificationPage.jsx';
+import EvaluationDashboardPage from './pages/EvaluationDashboardPage.jsx';
+import ComputeProfilePage from './pages/ComputeProfilePage.jsx';
+import TopNav from './components/TopNav.jsx';
 import {
   fetchHealth,
   getJob,
@@ -159,13 +164,42 @@ export default function App() {
     setReport(null);
   }
 
+  const handleNav = (navId) => {
+    setError(null);
+    if (navId === 'landing') {
+      setView('landing');
+    } else if (navId === 'batch') {
+      setView('batch');
+    } else if (navId === 'classification') {
+      setView('classification');
+    } else if (navId === 'evaluation') {
+      setView('evaluation');
+    } else if (navId === 'compute') {
+      setView('compute');
+    } else {
+      // 'research', 'crop', 'urban', 'disaster'
+      setApplication(navId);
+      setView('dashboard');
+    }
+  };
+
   const activeApp = job?.application || application;
+  const activeNav =
+    view === 'landing' ? 'landing' :
+    view === 'batch' ? 'batch' :
+    view === 'classification' ? 'classification' :
+    view === 'evaluation' ? 'evaluation' :
+    view === 'compute' ? 'compute' :
+    activeApp;
 
   return (
     <div style={{ minHeight: '100vh', background: '#050a14' }}>
+      {/* Global Top Navigation */}
+      <TopNav activeView={activeNav} onNavigate={handleNav} health={health} />
+
       {error && (
         <div
-          className="fixed top-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-5 py-3 rounded-xl text-sm font-semibold"
+          className="fixed top-16 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-5 py-3 rounded-xl text-sm font-semibold"
           style={{
             background: 'rgba(239,68,68,0.12)',
             border: '1px solid rgba(239,68,68,0.3)',
@@ -189,11 +223,40 @@ export default function App() {
       {view === 'landing' && (
         <div className="anim-fade-in">
           <LandingPage
-            onSelectApplication={(appId) => {
-              setApplication(appId);
-              setView('dashboard');
-            }}
+            onSelectApplication={(appId) => handleNav(appId)}
             health={health}
+          />
+        </div>
+      )}
+
+      {view === 'batch' && (
+        <div className="anim-fade-in">
+          <BatchProcessingPage
+            onBack={() => setView('landing')}
+          />
+        </div>
+      )}
+
+      {view === 'classification' && (
+        <div className="anim-fade-in">
+          <ClassificationPage
+            onBack={() => setView('landing')}
+          />
+        </div>
+      )}
+
+      {view === 'evaluation' && (
+        <div className="anim-fade-in">
+          <EvaluationDashboardPage
+            onBack={() => setView('landing')}
+          />
+        </div>
+      )}
+
+      {view === 'compute' && (
+        <div className="anim-fade-in">
+          <ComputeProfilePage
+            onBack={() => setView('landing')}
           />
         </div>
       )}
