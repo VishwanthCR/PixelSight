@@ -6,6 +6,13 @@ import ResultsDashboard from './pages/ResultsDashboard.jsx';
 import CropMonitoringPage from './pages/CropMonitoringPage.jsx';
 import UrbanAnalysisPage from './pages/UrbanAnalysisPage.jsx';
 import DisasterManagementPage from './pages/DisasterManagementPage.jsx';
+import BatchProcessingPage from './pages/BatchProcessingPage.jsx';
+import ClassificationPage from './pages/ClassificationPage.jsx';
+import GroundTruthPage from './pages/GroundTruthPage.jsx';
+import EvaluationDashboardPage from './pages/EvaluationDashboardPage.jsx';
+import ComputeProfilePage from './pages/ComputeProfilePage.jsx';
+import TopNav from './components/TopNav.jsx';
+import ResultsShell from './components/ResultsShell.jsx';
 import {
   fetchHealth,
   getJob,
@@ -159,13 +166,39 @@ export default function App() {
     setReport(null);
   }
 
+  const handleNav = (navId) => {
+    setError(null);
+    if (navId === 'landing') {
+      setView('landing');
+    } else if (navId === 'batch') {
+      setView('batch');
+    } else if (navId === 'classification') {
+      setView('classification');
+    } else if (navId === 'evaluation') {
+      setView('evaluation');
+    } else if (navId === 'compute') {
+      setView('compute');
+    } else {
+      // 'research', 'crop', 'urban', 'disaster'
+      setApplication(navId);
+      setView('dashboard');
+    }
+  };
+
   const activeApp = job?.application || application;
+  const activeNav =
+    view === 'landing' ? 'landing' :
+    view === 'batch' ? 'batch' :
+    view === 'classification' ? 'classification' :
+    view === 'evaluation' ? 'evaluation' :
+    view === 'compute' ? 'compute' :
+    activeApp;
 
   return (
     <div style={{ minHeight: '100vh', background: '#050a14' }}>
       {error && (
         <div
-          className="fixed top-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-5 py-3 rounded-xl text-sm font-semibold"
+          className="fixed top-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-5 py-3 rounded-xl text-sm font-semibold"
           style={{
             background: 'rgba(239,68,68,0.12)',
             border: '1px solid rgba(239,68,68,0.3)',
@@ -189,11 +222,49 @@ export default function App() {
       {view === 'landing' && (
         <div className="anim-fade-in">
           <LandingPage
-            onSelectApplication={(appId) => {
-              setApplication(appId);
-              setView('dashboard');
-            }}
+            onSelectApplication={(appId) => handleNav(appId)}
             health={health}
+          />
+        </div>
+      )}
+
+      {view === 'batch' && (
+        <div className="anim-fade-in">
+          <BatchProcessingPage
+            onBack={() => setView('landing')}
+          />
+        </div>
+      )}
+
+      {view === 'classification' && (
+        <div className="anim-fade-in">
+          <ClassificationPage
+            onBack={() => setView('landing')}
+          />
+        </div>
+      )}
+
+      {view === 'ground_truth' && (
+        <div className="anim-fade-in">
+          <GroundTruthPage
+            initialJobId={job?.job_id || 'demo-urban-001'}
+            onBack={() => setView(job ? 'results' : 'landing')}
+          />
+        </div>
+      )}
+
+      {view === 'evaluation' && (
+        <div className="anim-fade-in">
+          <EvaluationDashboardPage
+            onBack={() => setView('landing')}
+          />
+        </div>
+      )}
+
+      {view === 'compute' && (
+        <div className="anim-fade-in">
+          <ComputeProfilePage
+            onBack={() => setView('landing')}
           />
         </div>
       )}
@@ -202,7 +273,9 @@ export default function App() {
         <div className="anim-fade-in">
           <ApplicationInputDashboard
             application={application}
+            onSelectApplication={(appId) => handleNav(appId)}
             onBack={() => setView('landing')}
+            health={health}
             onJobStarted={(createdJob) => {
               setJob(createdJob);
               setView('processing');
@@ -219,38 +292,14 @@ export default function App() {
 
       {view === 'results' && results && report && (
         <div className="anim-fade-in">
-          {activeApp === 'crop' && (
-            <CropMonitoringPage
-              job={job}
-              results={results}
-              report={report}
-              onReset={handleReset}
-            />
-          )}
-          {activeApp === 'urban' && (
-            <UrbanAnalysisPage
-              job={job}
-              results={results}
-              report={report}
-              onReset={handleReset}
-            />
-          )}
-          {activeApp === 'disaster' && (
-            <DisasterManagementPage
-              job={job}
-              results={results}
-              report={report}
-              onReset={handleReset}
-            />
-          )}
-          {activeApp === 'research' && (
-            <ResultsDashboard
-              job={job}
-              results={results}
-              report={report}
-              onReset={handleReset}
-            />
-          )}
+          <ResultsShell
+            job={job}
+            results={results}
+            report={report}
+            onReset={handleReset}
+            onSelectApplication={(appId) => handleNav(appId)}
+            health={health}
+          />
         </div>
       )}
     </div>

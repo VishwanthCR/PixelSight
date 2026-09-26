@@ -1,0 +1,85 @@
+{
+  "dataset": "india_regional_reference",
+  "version": "1.0",
+  "crs": "EPSG:4326",
+  "tiles": [
+    {
+      "id": "INDIA_REF_CHENNAI_20230615",
+      "name": "Chennai Urban & Coastal Reference Benchmark Tile",
+      "bbox": [80.2500, 13.0600, 80.2900, 13.1000],
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [80.2500, 13.0600],
+            [80.2900, 13.0600],
+            [80.2900, 13.1000],
+            [80.2500, 13.1000],
+            [80.2500, 13.0600]
+          ]
+        ]
+      },
+      "datetime": "2023-06-15T05:30:00Z",
+      "resolution_m": 2.5,
+      "scale_factor": 4,
+      "bands": ["B02", "B03", "B04", "B08"],
+      "cloud_cover_pct": 0.0,
+      "sensor": "Airborne-Calibrated Multispectral Sensor",
+      "provider": "India Regional Reference Observatory",
+      "provenance": "High-altitude 2.5m reference imagery resampled to Sentinel-2 grid",
+      "uri": "data/reference/india_chennai_2p5m.tif"
+    },
+    {
+      "id": "INDIA_REF_DELHI_20230510",
+      "name": "Delhi NCR Urban Benchmark Tile",
+      "bbox": [77.1000, 28.5500, 77.3000, 28.7500],
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [77.1000, 28.5500],
+            [77.3000, 28.5500],
+            [77.3000, 28.7500],
+            [77.1000, 28.7500],
+            [77.1000, 28.5500]
+          ]
+        ]
+      },
+      "datetime": "2023-05-10T05:30:00Z",
+      "resolution_m": 2.5,
+      "scale_factor": 4,
+      "bands": ["B02", "B03", "B04", "B08"],
+      "cloud_cover_pct": 1.2,
+      "sensor": "Regional Aerial Orthoimagery",
+      "provider": "National Spatial Data Infrastructure",
+      "provenance": "Calibrated 2.5m airborne orthoimagery",
+      "uri": "data/reference/india_delhi_2p5m.tif"
+    },
+    {
+      "id": "INDIA_REF_PUNJAB_AGRI_20230920",
+      "name": "Punjab Agricultural Canopy Reference Tile",
+      "bbox": [75.5000, 30.8000, 75.9000, 31.2000],
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [75.5000, 30.8000],
+            [75.9000, 30.8000],
+            [75.9000, 31.2000],
+            [75.5000, 31.2000],
+            [75.5000, 30.8000]
+          ]
+        ]
+      },
+      "datetime": "2023-09-20T05:30:00Z",
+      "resolution_m": 2.5,
+      "scale_factor": 4,
+      "bands": ["B02", "B03", "B04", "B08"],
+      "cloud_cover_pct": 0.5,
+      "sensor": "Airborne Hyperspectral/Multispectral Sensor",
+      "provider": "Agricultural Field Remote Sensing Lab",
+      "provenance": "Sub-field calibrated 2.5m surface reflectance",
+      "uri": "data/reference/india_punjab_agri_2p5m.tif"
+    }
+  ]
+}

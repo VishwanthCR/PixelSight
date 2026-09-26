@@ -42,14 +42,43 @@ def _limitations_md(limitations: list[str]) -> str:
 
 def _metrics_table_md(evaluation: dict[str, Any]) -> str:
     if evaluation.get("status") != "reference_available":
-        return "_No reference-dependent metrics available for this job._"
+        reason = evaluation.get("reason", "No compatible external HR reference covers this location.")
+        no_ref = evaluation.get("no_reference_metrics", {})
+        spec = no_ref.get("spectral_conservation", {})
+        spat = no_ref.get("spatial_statistics", {})
+        lines = [
+            "### NO-REFERENCE SCIENTIFIC METRICS",
+            f"> **Status:** No compatible external HR reference covers this AOI ({reason}).",
+            "> **Scientific Note:** PSNR, SSIM, and SAM are strictly withheld to prevent false ground-truth claims.",
+            "",
+            "| Diagnostic Metric | Observed Value | Scientific Meaning |",
+            "|-------------------|----------------|--------------------|",
+        ]
+        if spec:
+            shift = spec.get("mean_absolute_radiometric_shift", [])
+            mean_s = sum(shift) / max(len(shift), 1) if shift else 0.0
+            lines.append(f"| Radiometric Conservation | {_safe(mean_s, '.4f')} mean delta | Mean spectral preservation across VNIR bands |")
+        if spat:
+            gain = spat.get("sharpness_gain_factor")
+            lines.append(f"| Edge Sharpness Gain | {_safe(gain, '.2f')}× | Laplacian gradient high-frequency energy ratio |")
+        return "\n".join(lines)
+
+    prov = evaluation.get("reference_provenance", {})
+    disc = evaluation.get("discovery", {})
     rows = [
+        f"| Source Dataset | {prov.get('source', disc.get('source', 'External HR'))} |",
+        f"| Reference ID | {prov.get('tile_id', disc.get('reference_id', '—'))} |",
+        f"| Spatial Overlap | {_safe(disc.get('spatial_overlap'), '.1f')}% |",
+        f"| Temporal Delta | {_safe(disc.get('temporal_difference_days'), 'd')} days ({disc.get('temporal_match_status', 'UNKNOWN')}) |",
+        f"| Spectral Compatibility | {disc.get('spectral_compatibility', 'FULL')} |",
         f"| PSNR | {_safe(evaluation.get('psnr'), '.3f')} dB |",
         f"| SSIM | {_safe(evaluation.get('ssim'), '.4f')} |",
         f"| SAM  | {_safe(evaluation.get('sam'), '.3f')} ° |",
+        f"| MAE  | {_safe(evaluation.get('mae'), '.4f')} |",
+        f"| RMSE | {_safe(evaluation.get('rmse'), '.4f')} |",
     ]
-    header = "| Metric | Value |\n|--------|-------|"
-    return header + "\n" + "\n".join(rows)
+    header = "| Metric / Provenance | Value |\n|---------------------|-------|"
+    return "### REFERENCE-BASED EVALUATION METRICS\n\n" + header + "\n" + "\n".join(rows)
 
 
 # ---------------------------------------------------------------------------
@@ -77,21 +106,23 @@ def _build_report(
         "psnr": None,
         "ssim": None,
         "sam": None,
-        "reason": "No valid high-resolution reference was supplied.",
+        "reason": "No valid high-resolution reference was found for this AOI.",
     }
     scientific_limitations = [
         "The SR product is a super-resolved representation, not observed 2.5m imagery.",
         "All pixel-level metrics are subject to resampling artefacts inherent to any bicubic interpolation chain.",
     ]
-    if evaluation["status"] == "reference_available":
+    if evaluation.get("status") == "reference_available":
+        prov = evaluation.get("reference_provenance", {})
+        src_name = prov.get("source") or evaluation.get("discovery", {}).get("source") or "external_hr"
         scientific_limitations.append(
-            "Reference-based metrics were computed against the uploaded input resampled to the SR grid "
-            "(self-consistency diagnostic), NOT against an independent observed high-resolution reference."
+            f"Reference-based metrics were computed against external HR reference ({src_name}, ~2.5m equivalent). "
+            "Differences in sensor spectral response, acquisition time, and registration may affect radiometric matching."
         )
     else:
         scientific_limitations.append(
-            "Reference-dependent metrics (PSNR, SSIM, SAM) are null because no valid "
-            "high-resolution reference was supplied."
+            "Reference-dependent metrics (PSNR, SSIM, SAM) are null because no compatible "
+            "external high-resolution reference covers this AOI."
         )
 
     if application == "urban" or urban_analysis:
@@ -112,19 +143,19 @@ def _build_report(
         scientific_limitations.append(uncertainty["limitation"])
 
     if evaluation.get("status") == "reference_available":
+        prov = evaluation.get("reference_provenance", {})
+        src_name = prov.get("source") or evaluation.get("discovery", {}).get("source") or "external HR reference"
         evaluation_interpretation = (
-            "The generated SR output was compared with the uploaded input after the input was resampled "
-            "to the SR grid. "
-            f"PSNR was {_safe(evaluation.get('psnr'), '.3f')} dB, "
+            f"The generated SR output was quantitatively evaluated against {src_name} (~2.5m nominal resolution). "
+            f"Observed PSNR was {_safe(evaluation.get('psnr'), '.3f')} dB, "
             f"SSIM was {_safe(evaluation.get('ssim'), '.4f')}, and "
             f"SAM was {_safe(evaluation.get('sam'), '.3f')} degrees. "
-            "These values describe input-to-output consistency; they are NOT evidence that the SR details "
-            "are observed high-resolution ground truth."
+            "Metrics reflect agreement with external reference imagery and should be considered alongside sensor differences."
         )
     else:
         evaluation_interpretation = (
-            "A valid input-to-output evaluation could not be produced for this job. "
-            f"{evaluation.get('reason', 'No evaluation values were returned.')}"
+            "No compatible external HR reference covers this AOI. "
+            f"{evaluation.get('reason', 'Reference-based metrics withheld; no-reference diagnostics provided.')}"
         )
 
     return {
@@ -145,6 +176,10 @@ def _build_report(
         "runtime": {"device": device, "seconds": runtime_seconds},
         "outputs": output_files,
         "evaluation": evaluation,
+        "reference_discovery": evaluation.get("discovery"),
+        "reference_selection": evaluation.get("discovery", {}).get("selection_reason") if evaluation.get("discovery") else None,
+        "reference_alignment": evaluation.get("alignment"),
+        "metric_eligibility": evaluation.get("discovery", {}).get("eligible_metrics") if evaluation.get("discovery") else None,
         "evaluation_interpretation": evaluation_interpretation,
         "urban_analysis": urban_analysis or (application_data if application == "urban" else None),
         "crop_analysis": application_data if application == "crop" else None,

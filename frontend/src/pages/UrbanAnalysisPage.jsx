@@ -16,21 +16,29 @@ const CLASS_COLORS = {
   water: '#327dd2',
 };
 
-export default function UrbanAnalysisPage({ job, results, report, onReset }) {
+export default function UrbanAnalysisPage({ job, results, report, onReset, onSelectApplication, health }) {
   const [activeLayer, setActiveLayer] = useState('sr_seg');
   const [viewMode, setViewMode] = useState('slider'); // 'slider' | 'single'
+  const [sliderBaseline, setSliderBaseline] = useState('reference'); // 'reference' | 'native'
 
   const jobId = job?.job_id || results?.job_id;
   const urbanData = results?.outputs?.urban || report?.urban_analysis || {};
   const indicators = urbanData?.indicators || {};
   const distribution = urbanData?.class_distribution || {};
+  const evalMetrics = results?.outputs?.evaluation_metrics || report?.evaluation || {};
 
   const srSegPreview    = resultFileUrl(jobId, 'application/urban/previews/segmentation_sr.png');
   const nativeSegPreview = resultFileUrl(jobId, 'application/urban/previews/segmentation_native.png');
   const builtupPreview   = resultFileUrl(jobId, 'application/urban/previews/builtup_preview.png');
   const diffPreview      = resultFileUrl(jobId, 'application/urban/previews/urban_difference.png');
   const originalRgbUrl   = resultFileUrl(jobId, 'input/original_preview.png');
+  const hrRefRgbUrl      = resultFileUrl(jobId, 'preprocessing/hr_reference_preview.png');
   const srRgbUrl         = resultFileUrl(jobId, 'super_resolution/sr_preview.png');
+
+  const activeLeftUrl = sliderBaseline === 'reference' ? hrRefRgbUrl : originalRgbUrl;
+  const activeLeftLabel = sliderBaseline === 'reference'
+    ? '◀ HR REFERENCE · Normal Zoomed AOI (2.5 m)'
+    : '◀ INPUT · 10 m (native)';
 
   const currentPreview =
     activeLayer === 'builtup'
@@ -43,6 +51,7 @@ export default function UrbanAnalysisPage({ job, results, report, onReset }) {
 
   const downloads = [
     { name: 'SR Segmentation GeoTIFF (4x)', path: 'application/urban/segmentation_sr.tif', desc: 'WorldCover 7-class raster' },
+    { name: 'HR Reference GeoTIFF (2.5m)', path: 'preprocessing/hr_reference.tif', desc: 'Normal zoomed AOI baseline raster' },
     { name: 'Native Segmentation GeoTIFF', path: 'application/urban/segmentation_native.tif', desc: 'Input-resolution classification' },
     { name: 'Built-up Mask GeoTIFF', path: 'application/urban/builtup.tif', desc: 'Binary building cluster footprint' },
     { name: 'Urban Difference GeoTIFF', path: 'application/urban/urban_difference.tif', desc: 'Reclassification discrepancy mask' },
@@ -52,28 +61,56 @@ export default function UrbanAnalysisPage({ job, results, report, onReset }) {
 
   return (
     <div className="min-h-screen pb-16 px-4 md:px-8 max-w-7xl mx-auto text-slate-200">
-      {/* Header */}
-      <header className="py-6 flex flex-wrap items-center justify-between gap-4 border-b border-white/[0.06] mb-8">
-        <div className="flex items-center gap-3">
+      {/* Top Integrated Header */}
+      <header className="py-5 flex flex-wrap items-center justify-between gap-4 border-b border-white/[0.08] mb-8">
+        <div className="flex items-center gap-3.5">
           <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-amber-500/10 border border-amber-500/30 text-amber-400">
             <Building2 className="w-6 h-6" />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-xl font-bold text-white">Urban & Land-Cover Analysis</h1>
+              <h1 className="text-xl font-bold text-white">Urban &amp; Land-Cover Analysis</h1>
               <span className="text-[10px] uppercase font-bold tracking-widest px-2.5 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-300">
-                Model-Output Comparison
+                Input-Specific Analysis
               </span>
             </div>
-            <div className="text-xs text-slate-500 mt-0.5 font-mono">Job: {jobId} · ESA WorldCover 7-class UNet</div>
+            <div className="text-xs text-slate-500 mt-0.5 font-mono">
+              Job: {jobId} · ESA WorldCover 7-class UNet
+            </div>
           </div>
         </div>
-        <button
-          onClick={onReset}
-          className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold bg-white/[0.05] hover:bg-white/[0.09] text-slate-300 transition-colors"
-        >
-          <RotateCcw className="w-3.5 h-3.5" /> Analyze Another Area
-        </button>
+
+        <div className="flex flex-wrap items-center gap-2">
+          {onSelectApplication && (
+            <div className="flex items-center bg-slate-900/90 rounded-xl p-1 border border-slate-800 text-xs">
+              <button
+                onClick={() => onSelectApplication('crop')}
+                className="px-2.5 py-1.5 rounded-lg text-slate-400 hover:text-white font-medium transition-colors"
+              >
+                Crop
+              </button>
+              <button
+                onClick={() => onSelectApplication('disaster')}
+                className="px-2.5 py-1.5 rounded-lg text-slate-400 hover:text-white font-medium transition-colors"
+              >
+                Disaster
+              </button>
+              <button
+                onClick={() => onSelectApplication('research')}
+                className="px-2.5 py-1.5 rounded-lg text-slate-400 hover:text-white font-medium transition-colors"
+              >
+                Research
+              </button>
+            </div>
+          )}
+
+          <button
+            onClick={onReset}
+            className="flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold bg-white/[0.05] hover:bg-white/[0.09] text-slate-300 hover:text-white border border-white/[0.08] transition-colors"
+          >
+            <RotateCcw className="w-3.5 h-3.5" /> Analyze Another Area
+          </button>
+        </div>
       </header>
 
       {/* Main Grid */}
@@ -93,7 +130,7 @@ export default function UrbanAnalysisPage({ job, results, report, onReset }) {
                     viewMode === 'slider' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' : 'bg-white/[0.04] text-slate-400'
                   }`}
                 >
-                  Native vs SR Slider
+                  Swipe Comparison
                 </button>
                 <button
                   onClick={() => setViewMode('single')}
@@ -108,16 +145,47 @@ export default function UrbanAnalysisPage({ job, results, report, onReset }) {
 
             {viewMode === 'slider' ? (
               <div className="space-y-3">
+                {/* Baseline Toggle: Zoomed AOI Reference vs Native 10m */}
+                <div className="flex items-center justify-between px-1 text-xs">
+                  <span className="text-slate-400 font-medium">Compare LDSR-S2 SR against:</span>
+                  <div className="flex items-center gap-1.5 bg-slate-900/90 p-1 rounded-lg border border-slate-800">
+                    <button
+                      onClick={() => setSliderBaseline('reference')}
+                      className={`px-2.5 py-1 rounded text-[11px] font-semibold transition-all ${
+                        sliderBaseline === 'reference'
+                          ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30 shadow-sm'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      Normal Zoomed AOI (2.5m)
+                    </button>
+                    <button
+                      onClick={() => setSliderBaseline('native')}
+                      className={`px-2.5 py-1 rounded text-[11px] font-semibold transition-all ${
+                        sliderBaseline === 'native'
+                          ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30 shadow-sm'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      Native 10m Input
+                    </button>
+                  </div>
+                </div>
+
                 <div className="h-[420px] rounded-xl overflow-hidden border border-white/[0.08] bg-black/40">
                   <CompareSlider
-                    leftSrc={originalRgbUrl}
+                    leftSrc={activeLeftUrl}
                     rightSrc={srRgbUrl}
-                    leftLabel="◀ INPUT · 10 m (native)"
-                    rightLabel="SR · ~2.5 m (4×) ▶"
+                    leftLabel={activeLeftLabel}
+                    rightLabel="SR OUTPUT · ~2.5 m (4×) ▶"
                   />
                 </div>
                 <div className="flex items-center justify-between text-xs text-slate-500 px-1">
-                  <span>Drag to compare native vs super-resolved image quality</span>
+                  <span>
+                    {sliderBaseline === 'reference'
+                      ? 'Left: 4× normal zoomed AOI reference baseline · Right: LDSR-S2 2.5m diffusion'
+                      : 'Left: native 10m Sentinel-2 input · Right: LDSR-S2 2.5m diffusion'}
+                  </span>
                   <span>Switch to Layer Selector for segmentation maps</span>
                 </div>
               </div>
@@ -196,6 +264,41 @@ export default function UrbanAnalysisPage({ job, results, report, onReset }) {
 
         {/* Right Column: Statistics & Downloads */}
         <div className="space-y-6">
+          {/* Quantitative Quality vs Normal Zoomed AOI Reference */}
+          {evalMetrics?.psnr != null && (
+            <div className="card p-5 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-semibold text-white">Reconstruction vs Normal Zoomed AOI</span>
+                <span className="text-[10px] text-amber-400 font-mono px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/30">
+                  2.5m Reference
+                </span>
+              </div>
+              <div className="grid grid-cols-3 gap-2.5">
+                <div className="rounded-xl p-3 bg-white/[0.03] border border-white/[0.05] text-center">
+                  <div className="text-[10px] uppercase tracking-wider text-slate-500">PSNR</div>
+                  <div className="text-lg font-bold font-mono text-cyan-300 mt-1">
+                    {Number(evalMetrics.psnr).toFixed(2)} dB
+                  </div>
+                </div>
+                <div className="rounded-xl p-3 bg-white/[0.03] border border-white/[0.05] text-center">
+                  <div className="text-[10px] uppercase tracking-wider text-slate-500">SSIM</div>
+                  <div className="text-lg font-bold font-mono text-emerald-300 mt-1">
+                    {Number(evalMetrics.ssim).toFixed(4)}
+                  </div>
+                </div>
+                <div className="rounded-xl p-3 bg-white/[0.03] border border-white/[0.05] text-center">
+                  <div className="text-[10px] uppercase tracking-wider text-slate-500">SAM</div>
+                  <div className="text-lg font-bold font-mono text-amber-300 mt-1">
+                    {Number(evalMetrics.sam).toFixed(2)}°
+                  </div>
+                </div>
+              </div>
+              <div className="text-[11px] text-slate-500 leading-relaxed">
+                Empirical reconstruction quality computed for this specific AOI scene against the 4× normal zoomed baseline.
+              </div>
+            </div>
+          )}
+
           {/* Key Indicators */}
           <div className="card p-5 space-y-4">
             <span className="text-sm font-semibold text-white">Land-Cover Physical Indicators</span>

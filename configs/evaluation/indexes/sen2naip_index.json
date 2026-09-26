@@ -1,0 +1,33 @@
+{
+  "dataset": "sen2naip",
+  "version": "1.0",
+  "crs": "EPSG:4326",
+  "tiles": [
+    {
+      "id": "SEN2NAIP_CALIFORNIA_AGRI_20230701",
+      "name": "SEN2NAIP Central Valley Agriculture Benchmark",
+      "bbox": [-120.5000, 36.8000, -120.3000, 37.0000],
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [-120.5000, 36.8000],
+            [-120.3000, 36.8000],
+            [-120.3000, 37.0000],
+            [-120.5000, 37.0000],
+            [-120.5000, 36.8000]
+          ]
+        ]
+      },
+      "datetime": "2023-07-01T18:00:00Z",
+      "resolution_m": 2.5,
+      "scale_factor": 4,
+      "bands": ["B02", "B03", "B04", "B08"],
+      "cloud_cover_pct": 0.0,
+      "sensor": "National Agriculture Imagery Program (NAIP) DOQQ",
+      "provider": "USDA Aerial Photography Field Office",
+      "provenance": "Four-band 2.5m resampled NAIP orthoimagery",
+      "uri": "data/reference/sen2naip_california_2p5m.tif"
+    }
+  ]
+}

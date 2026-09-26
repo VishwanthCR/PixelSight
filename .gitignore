@@ -66,3 +66,8 @@ backend/.env.*
 # Old nested frontend backup
 SR_PixelSight/
 
+# Cache & reference downloads
+results/cache/
+results/
+!results/.gitkeep
+

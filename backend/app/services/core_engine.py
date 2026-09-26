@@ -56,6 +56,25 @@ class PixelSightEngine:
         return preprocess_raster(input_path, output_path)
 
     @classmethod
+    def create_hr_reference(
+        cls,
+        input_path: Path,
+        output_path: Path,
+        preview_path: Path | None = None,
+    ) -> tuple[Path, dict[str, Any]]:
+        """Creates the 4x normal zoomed AOI reference baseline raster and optional preview PNG."""
+        from backend.app.services.raster import create_zoomed_reference
+        ref_path, meta = create_zoomed_reference(input_path, output_path, scale=cls.SCALE)
+        if preview_path:
+            save_rgb_preview(ref_path, preview_path)
+        return ref_path, meta
+
+    @classmethod
+    def create_preview(cls, raster_path: Path, output_path: Path) -> None:
+        """Create RGB preview PNG from raster."""
+        save_rgb_preview(raster_path, output_path)
+
+    @classmethod
     def enhance(
         cls,
         normalized_path: Path,

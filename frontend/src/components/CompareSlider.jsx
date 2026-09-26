@@ -20,68 +20,107 @@ export default function CompareSlider({
   beforeSrc, afterSrc,
   leftSrc,   rightSrc,
   leftLabel, rightLabel,
+  className = '',
+  initialPos = 50,
 }) {
   const imgBefore  = beforeSrc ?? leftSrc;
   const imgAfter   = afterSrc  ?? rightSrc;
-  const labelLeft  = leftLabel  ?? '◀ INPUT · native';
-  const labelRight = rightLabel ?? 'SR OUTPUT ▶';
+  const labelLeft  = leftLabel  ?? '◀ BEFORE / INPUT';
+  const labelRight = rightLabel ?? 'AFTER / SR ▶';
 
-  const [pos, setPos]  = useState(50);   // 0–100 (%)
+  const [pos, setPos]  = useState(initialPos);   // 0–100 (%)
   const containerRef   = useRef(null);
-  const dragging       = useRef(false);
+  const isDragging     = useRef(false);
 
-  const clamp = v => Math.min(99, Math.max(1, v));
+  const clamp = v => Math.min(100, Math.max(0, v));
 
-  const updatePos = useCallback(clientX => {
+  const updatePosFromClientX = useCallback(clientX => {
     if (!containerRef.current) return;
     const { left, width } = containerRef.current.getBoundingClientRect();
-    setPos(clamp(((clientX - left) / width) * 100));
+    if (width <= 0) return;
+    const newPos = clamp(((clientX - left) / width) * 100);
+    setPos(newPos);
   }, []);
 
-  // ── pointer events ──────────────────────────────────────────────────────
-  const onMouseDown = useCallback(e => {
+  // ── Robust Pointer Events (Supports Mouse, Touch, Stylus) ─────────────────
+  const handlePointerDown = (e) => {
     e.preventDefault();
-    dragging.current = true;
-    updatePos(e.clientX);
-  }, [updatePos]);
-
-  const onMouseMove = useCallback(e => {
-    if (dragging.current) updatePos(e.clientX);
-  }, [updatePos]);
-
-  const stopDrag = useCallback(() => { dragging.current = false; }, []);
-
-  const onTouchStart = useCallback(e => {
-    dragging.current = true;
-    updatePos(e.touches[0].clientX);
-  }, [updatePos]);
-
-  const onTouchMove = useCallback(e => {
-    if (dragging.current) {
-      e.preventDefault();
-      updatePos(e.touches[0].clientX);
+    isDragging.current = true;
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      // Fallback if browser doesn't support setPointerCapture
     }
-  }, [updatePos]);
+    updatePosFromClientX(e.clientX);
+  };
 
-  // release drag anywhere on the page
+  const handlePointerMove = (e) => {
+    if (isDragging.current) {
+      e.preventDefault();
+      updatePosFromClientX(e.clientX);
+    }
+  };
+
+  const handlePointerUp = (e) => {
+    if (isDragging.current) {
+      isDragging.current = false;
+      try {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      } catch {
+        // Fallback
+      }
+    }
+  };
+
+  // Keyboard accessibility
+  const handleKeyDown = (e) => {
+    if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      setPos(p => Math.max(0, p - 5));
+    } else if (e.key === 'ArrowRight') {
+      e.preventDefault();
+      setPos(p => Math.min(100, p + 5));
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      setPos(0);
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      setPos(100);
+    }
+  };
+
+  // Global safety release
   useEffect(() => {
-    window.addEventListener('mouseup', stopDrag);
-    window.addEventListener('touchend', stopDrag);
-    return () => {
-      window.removeEventListener('mouseup', stopDrag);
-      window.removeEventListener('touchend', stopDrag);
+    const handleGlobalUp = () => { isDragging.current = false; };
+    const handleGlobalMove = (e) => {
+      if (isDragging.current) {
+        updatePosFromClientX(e.clientX);
+      }
     };
-  }, [stopDrag]);
+    window.addEventListener('pointerup', handleGlobalUp);
+    window.addEventListener('pointermove', handleGlobalMove);
+    return () => {
+      window.removeEventListener('pointerup', handleGlobalUp);
+      window.removeEventListener('pointermove', handleGlobalMove);
+    };
+  }, [updatePosFromClientX]);
 
   return (
     <div
       ref={containerRef}
-      className="relative w-full h-full overflow-hidden select-none cursor-col-resize"
-      onMouseDown={onMouseDown}
-      onMouseMove={onMouseMove}
-      onMouseLeave={stopDrag}
-      onTouchStart={onTouchStart}
-      onTouchMove={onTouchMove}
+      role="slider"
+      tabIndex={0}
+      aria-label="Image comparison slider"
+      aria-valuenow={Math.round(pos)}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      onKeyDown={handleKeyDown}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerUp}
+      className={`relative w-full h-full overflow-hidden select-none cursor-col-resize focus:outline-none focus:ring-2 focus:ring-cyan-400/50 ${className}`}
+      style={{ touchAction: 'none' }}
     >
       {/* ── AFTER (right) — fills container, always fully visible ── */}
       <img

@@ -10,7 +10,10 @@ import {
   Sparkles,
   Layers,
   Activity,
-  Cpu
+  Cpu,
+  FileStack,
+  Map,
+  BarChart3,
 } from 'lucide-react';
 
 const APPLICATIONS = [
@@ -124,7 +127,7 @@ export default function LandingPage({
           </p>
         </div>
 
-        {/* 3 Primary Application Cards (Rule 3) */}
+        {/* 3 Primary Application Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {APPLICATIONS.map((app) => {
             const Icon = app.icon;
@@ -184,38 +187,67 @@ export default function LandingPage({
           })}
         </div>
 
-        {/* Secondary / Advanced Section: Research Engine Studio */}
-        <div className="p-6 rounded-3xl bg-slate-900/60 border border-slate-800 hover:border-slate-700 transition-colors flex flex-wrap items-center justify-between gap-6">
-          <div className="flex items-center gap-4 max-w-xl">
-            <div className="p-3 rounded-2xl bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 flex-shrink-0">
-              <Cpu className="w-6 h-6" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2 mb-1">
-                <span className="text-sm font-bold text-white">Advanced Research & Model Exploration</span>
-                <span className="text-[10px] px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-300 border border-cyan-500/30 uppercase font-mono">
-                  100 Steps Diffusion
-                </span>
+        {/* Secondary Workflow Tools: Research Studio + Batch Processing */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Research Engine */}
+          <div className="p-6 rounded-3xl bg-slate-900/60 border border-slate-800 hover:border-slate-700 transition-colors flex flex-wrap items-center justify-between gap-6">
+            <div className="flex items-center gap-4">
+              <div className="p-3 rounded-2xl bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 flex-shrink-0">
+                <Cpu className="w-6 h-6" />
               </div>
-              <p className="text-xs text-slate-400 leading-relaxed">
-                Full research studio for benchmark validation, Fourier Ring Correlation (FRC), Modulation Transfer Function (MTF), and pixel-level stochastic variance mapping.
-              </p>
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-sm font-bold text-white">Advanced Research Studio</span>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-300 border border-cyan-500/30 uppercase font-mono">
+                    100 Steps Diffusion
+                  </span>
+                </div>
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  Deep research studio with input-specific quantitative evaluation vs normal zoomed AOI reference, PSNR, SSIM, SAM, and pixel-level uncertainty.
+                </p>
+              </div>
             </div>
+            <button
+              onClick={() => onSelectApplication('research')}
+              className="px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border border-slate-700 font-bold text-xs uppercase tracking-wider transition-all flex items-center gap-2"
+            >
+              <span>Open Research Studio</span>
+              <ArrowRight className="w-4 h-4" />
+            </button>
           </div>
 
-          <button
-            onClick={() => onSelectApplication('research')}
-            className="px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border border-slate-700 font-bold text-xs uppercase tracking-wider transition-all flex items-center gap-2"
-          >
-            <span>Open Research Studio</span>
-            <ArrowRight className="w-4 h-4" />
-          </button>
+          {/* Batch Processing */}
+          <div className="p-6 rounded-3xl bg-slate-900/60 border border-slate-800 hover:border-violet-500/30 transition-colors flex flex-wrap items-center justify-between gap-6">
+            <div className="flex items-center gap-4">
+              <div className="p-3 rounded-2xl bg-violet-500/10 text-violet-400 border border-violet-500/20 flex-shrink-0">
+                <FileStack className="w-6 h-6" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-sm font-bold text-white">Batch Processing</span>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-violet-500/10 text-violet-300 border border-violet-500/30 uppercase font-mono">
+                    Up to 20 Files
+                  </span>
+                </div>
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  Process multiple Sentinel-2 GeoTIFF scenes simultaneously with live per-job progress tracking, queue management, and cancel/retry.
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => onSelectApplication('batch')}
+              className="px-5 py-2.5 rounded-xl bg-violet-800/40 hover:bg-violet-700/50 text-violet-200 hover:text-white border border-violet-700/50 font-bold text-xs uppercase tracking-wider transition-all flex items-center gap-2"
+            >
+              <span>Open Batch Dashboard</span>
+              <ArrowRight className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       </div>
 
       {/* Footer */}
       <footer className="max-w-6xl w-full mx-auto pt-6 border-t border-white/[0.06] text-center text-xs text-slate-500">
-        PixelSight Satellite Intelligence Platform · Powered by Copernicus Data Space Ecosystem & ESA OpenSR LDSR-S2
+        PixelSight Satellite Intelligence Platform · Powered by Copernicus Data Space Ecosystem &amp; ESA OpenSR LDSR-S2
       </footer>
     </main>
   );
