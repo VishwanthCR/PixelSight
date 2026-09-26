@@ -6,6 +6,8 @@ import {
   Sparkles, ArrowLeft
 } from 'lucide-react';
 import { startBatchProcessing, listBatchJobs, getJob, fetchComputeProfile, resultFileUrl } from '../api/srmApi.js';
+import AnalystDrawer from '../components/AnalystDrawer.jsx';
+
 
 const APP_OPTIONS = [
   { id: 'research', label: 'Research / LDSR-S2', color: '#06b6d4', desc: '100-step diffusion SR + uncertainty + segmentation' },
@@ -483,8 +485,16 @@ export default function BatchProcessingPage({ onBack }) {
               </div>
             </div>
           )}
+
+          {batchResult?.batch_id && (
+            <AnalystDrawer
+              batchId={batchResult.batch_id}
+              application="batch"
+            />
+          )}
         </div>
       )}
     </div>
   );
 }
+

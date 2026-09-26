@@ -205,3 +205,76 @@ export async function reviewGroundTruth(jobId, status, reviewer = null) {
 export function groundTruthExportUrl(jobId, format) {
   return `${API_BASE_URL}/ground-truth/${jobId}/export/${format}`;
 }
+
+// ── PixelSight Analyst (Local LLM) ────────────────────────────────────────
+export async function fetchAnalystStatus() {
+  return request('/analyst/status');
+}
+
+export async function fetchAnalystModels() {
+  return request('/analyst/models');
+}
+
+export async function selectAnalystModel(model) {
+  return request('/analyst/models/select', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model }),
+  });
+}
+
+export async function explainJob(jobId, question = null) {
+  return request(`/analyst/jobs/${jobId}/explain`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ question, stream: false }),
+  });
+}
+
+export async function chatJob(jobId, message) {
+  return request(`/analyst/jobs/${jobId}/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message, stream: false }),
+  });
+}
+
+export async function summarizeBatch(batchId, question = null) {
+  return request(`/analyst/batch/${batchId}/summary`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ question, stream: false }),
+  });
+}
+
+export async function clearAnalystSession(sessionId) {
+  return request(`/analyst/sessions/${sessionId}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function streamAnalystJob(jobId, message, onChunk, onDone, onError) {
+  try {
+    const response = await fetch(`${API_BASE_URL}/analyst/jobs/${jobId}/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message, stream: true }),
+    });
+    if (!response.ok) {
+      const errPayload = await response.json().catch(() => ({}));
+      throw new Error(errPayload.detail || `Stream failed (${response.status})`);
+    }
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const text = decoder.decode(value, { stream: true });
+      onChunk(text);
+    }
+    if (onDone) onDone();
+  } catch (err) {
+    if (onError) onError(err);
+  }
+}
+
