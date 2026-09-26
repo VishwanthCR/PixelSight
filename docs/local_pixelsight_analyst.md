@@ -21,7 +21,8 @@ Existing PixelSight Application
             │
             ▼
    Local Instruct LLM
- (e.g. LLaMA 3.1 8B Instruct)
+  (e.g. Qwen 2.5 7B / qwen2.5:7b)
+
             │
             ▼
    PixelSight Analyst
@@ -63,11 +64,11 @@ Download and install Ollama from [ollama.com](https://ollama.com/download):
 - **macOS**: Install Ollama macOS package.
 
 ### 2. Pull Recommended Local Model
-We recommend a local 7B–8B instruct-class model:
+We use the local 7B instruct-class model **Qwen 2.5 7B**:
 ```bash
-ollama pull llama3.1:8b
+ollama pull qwen2.5:7b
 ```
-Alternative supported models include `qwen2.5:7b`, `mistral:7b`, or `llama3.2:3b` for lightweight hardware.
+Alternative supported models include `llama3.1:8b`, `mistral:7b`, or `llama3.2:3b` for lightweight hardware.
 
 ### 3. Start the Ollama Service
 Ensure the Ollama daemon is running:
@@ -86,8 +87,9 @@ Configure the local analyst via environment variables or in `backend/.env`:
 |---|---|---|
 | `PIXELSIGHT_LLM_PROVIDER` | `ollama` | LLM backend runtime provider |
 | `PIXELSIGHT_OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama HTTP API endpoint |
-| `PIXELSIGHT_OLLAMA_MODEL` | `llama3.1:8b` | Configured instruct model tag |
+| `PIXELSIGHT_OLLAMA_MODEL` | `qwen2.5:7b` | Configured instruct model tag (Qwen 2.5 7B) |
 | `PIXELSIGHT_OLLAMA_TIMEOUT` | `60.0` | Inference request timeout in seconds |
+
 
 ---
 

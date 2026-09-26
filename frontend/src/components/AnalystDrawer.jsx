@@ -496,10 +496,11 @@ export default function AnalystDrawer({
               </select>
             ) : (
               <span className="font-mono text-cyan-300 font-semibold">
-                {status?.configured_model || 'llama3.1:8b'}
+                {status?.configured_model || 'qwen2.5:7b'}
               </span>
             )}
           </div>
+
 
           {/* Offline / Error Banner */}
           {!isReady && (
