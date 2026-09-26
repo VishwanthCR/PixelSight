@@ -1,0 +1,59 @@
+{
+  "dataset": "sen2neon",
+  "version": "1.0",
+  "crs": "EPSG:4326",
+  "tiles": [
+    {
+      "id": "SEN2NEON_HARV_20220715",
+      "name": "NEON Harvard Forest Ecological Core Reference Site",
+      "bbox": [-72.2500, 42.5000, -72.1500, 42.5800],
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [-72.2500, 42.5000],
+            [-72.1500, 42.5000],
+            [-72.1500, 42.5800],
+            [-72.2500, 42.5800],
+            [-72.2500, 42.5000]
+          ]
+        ]
+      },
+      "datetime": "2022-07-15T15:00:00Z",
+      "resolution_m": 2.5,
+      "scale_factor": 4,
+      "bands": ["B02", "B03", "B04", "B08"],
+      "cloud_cover_pct": 0.0,
+      "sensor": "NEON Airborne Observation Platform (AOP)",
+      "provider": "National Ecological Observatory Network (NEON)",
+      "provenance": "Calibrated 2.5m surface reflectance aligned to Sentinel-2 L2A grid",
+      "uri": "data/reference/sen2neon_harv_2p5m.tif"
+    },
+    {
+      "id": "SEN2NEON_SJER_20220610",
+      "name": "NEON San Joaquin Experimental Range",
+      "bbox": [-119.7800, 37.0800, -119.6800, 37.1600],
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [-119.7800, 37.0800],
+            [-119.6800, 37.0800],
+            [-119.6800, 37.1600],
+            [-119.7800, 37.1600],
+            [-119.7800, 37.0800]
+          ]
+        ]
+      },
+      "datetime": "2022-06-10T17:30:00Z",
+      "resolution_m": 2.5,
+      "scale_factor": 4,
+      "bands": ["B02", "B03", "B04", "B08"],
+      "cloud_cover_pct": 0.0,
+      "sensor": "NEON Airborne Observation Platform (AOP)",
+      "provider": "National Ecological Observatory Network (NEON)",
+      "provenance": "Calibrated 2.5m surface reflectance",
+      "uri": "data/reference/sen2neon_sjer_2p5m.tif"
+    }
+  ]
+}

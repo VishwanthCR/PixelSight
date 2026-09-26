@@ -1,0 +1,33 @@
+{
+  "dataset": "opensr_test",
+  "version": "1.0",
+  "crs": "EPSG:4326",
+  "tiles": [
+    {
+      "id": "OPENSR_TEST_PARIS_20220801",
+      "name": "OpenSR Test Suite - Paris Urban Scene",
+      "bbox": [2.2500, 48.8000, 2.4500, 48.9200],
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [2.2500, 48.8000],
+            [2.4500, 48.8000],
+            [2.4500, 48.9200],
+            [2.2500, 48.9200],
+            [2.2500, 48.8000]
+          ]
+        ]
+      },
+      "datetime": "2022-08-01T11:00:00Z",
+      "resolution_m": 2.5,
+      "scale_factor": 4,
+      "bands": ["B02", "B03", "B04", "B08"],
+      "cloud_cover_pct": 0.0,
+      "sensor": "SPOT 6/7 Optical HR Reference",
+      "provider": "OpenSR Remote Sensing Benchmark",
+      "provenance": "Calibrated 2.5m super-resolution test partition",
+      "uri": "data/reference/opensr_test_paris_2p5m.tif"
+    }
+  ]
+}

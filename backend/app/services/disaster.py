@@ -239,11 +239,36 @@ def run_disaster_analysis(
         },
     }
 
+    # 8. Ground Truth Evaluation if validated labels exist
+    from backend.app.services.ground_truth.disaster_evaluator import disaster_gt_evaluator
+    gt_dir = job_dir / "ground_truth"
+    gt_tif = gt_dir / "ground_truth.tif"
+    gt_meta_file = gt_dir / "metadata.json"
+    gt_meta = {}
+    if gt_meta_file.exists():
+        try:
+            gt_meta = json.loads(gt_meta_file.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+
+    gt_evaluation = disaster_gt_evaluator.evaluate(
+        change_map_path=change_map_tif,
+        ground_truth_path=gt_tif if gt_tif.exists() else None,
+        change_threshold=change_threshold,
+        evaluation_grid="2.5m",
+        metadata=gt_meta,
+    )
+
     result = {
         "application": "disaster",
-        "scientific_status": "Research analysis — no independent ground truth",
-        "methodology": "Spectral difference vector magnitude with dual-acquisition SR uncertainty propagation",
+        "scientific_status": (
+            "Ground-Truth Validated Analysis"
+            if gt_evaluation.get("label_status") == "GROUND_TRUTH"
+            else "Research analysis — no independent ground truth"
+        ),
+        "methodology": "Multi-spectral change vector analysis with dual-acquisition SR uncertainty propagation",
         "statistics": statistics,
+        "evaluation": gt_evaluation,
         "interpretations": [
             f"Detected {changed_pixels} spectral change pixels ({change_fraction*100:.2f}% of total area) exceeding magnitude threshold {change_threshold}.",
             f"Of the detected change area, {statistics['reliability_breakdown']['lower_uncertainty_fraction_of_change']*100:.1f}% falls within lower-uncertainty boundaries.",

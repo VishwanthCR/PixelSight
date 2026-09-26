@@ -1,7 +1,7 @@
 import React from 'react';
 import {
   Globe2, Sprout, Building2, Flame, Layers, FileStack,
-  BarChart3, Cpu, Map
+  BarChart3, Cpu, Map, CheckCircle2
 } from 'lucide-react';
 
 const NAV_ITEMS = [
@@ -12,6 +12,7 @@ const NAV_ITEMS = [
   { id: 'disaster', label: 'Disaster Management', icon: Flame },
   { id: 'batch', label: 'Batch Processing', icon: FileStack },
   { id: 'classification', label: 'Classification', icon: Map },
+  { id: 'ground_truth', label: 'Ground Truth', icon: CheckCircle2 },
   { id: 'evaluation', label: 'Evaluation / Research', icon: BarChart3 },
   { id: 'compute', label: 'Compute', icon: Cpu },
 ];

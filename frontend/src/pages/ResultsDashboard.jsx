@@ -1,14 +1,18 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Download, FileText, Image as ImageIcon, RotateCcw,
   ShieldAlert, CheckCircle2, Trees, Building2,
   BarChart3, Globe2, Layers, Activity, Cpu, BookOpen,
   ChevronRight, AlertTriangle, Info, ExternalLink,
-  Thermometer, Radar, Map,
+  Thermometer, Radar, Map, Sprout, LayoutDashboard,
 } from 'lucide-react';
 import CompareSlider from '../components/CompareSlider.jsx';
 import EvaluationMetricsPanel from '../components/EvaluationMetricsPanel.jsx';
-import { resultFileUrl } from '../api/srmApi.js';
+import ClassificationSummaryCard from '../components/ClassificationSummaryCard.jsx';
+import ClassificationReportSheet from '../components/ClassificationReportSheet.jsx';
+import GroundTruthPage from './GroundTruthPage.jsx';
+import UncertaintyViewer from '../components/UncertaintyViewer.jsx';
+import { resultFileUrl, fetchJobClassification } from '../api/srmApi.js';
 
 // ─── Utility components ────────────────────────────────────────────────────
 
@@ -36,32 +40,6 @@ function MetricRow({ label, value, suffix = '', note }) {
   );
 }
 
-function EvaluationBar({ label, value, display, scale, color, note }) {
-  const numericValue = Number(value);
-  const width = Number.isFinite(numericValue) ? Math.max(3, Math.min(100, (numericValue / scale) * 100)) : 0;
-  return (
-    <div className="space-y-1">
-      <div className="flex items-center justify-between text-xs">
-        <span className="text-slate-400">{label}</span>
-        <span className="font-mono text-slate-200">{display}</span>
-      </div>
-      <div className="h-2 rounded-full bg-slate-800 overflow-hidden">
-        <div className="h-full rounded-full transition-all duration-700" style={{ width: `${width}%`, background: color }} />
-      </div>
-      <div className="text-[10px] text-slate-600">{note}</div>
-    </div>
-  );
-}
-
-function ComparisonBar({ value, maximum, color }) {
-  const width = maximum > 0 ? Math.max(4, (value / maximum) * 100) : 0;
-  return (
-    <div className="h-2 rounded-full bg-slate-800 overflow-hidden">
-      <div className="h-full rounded-full" style={{ width: `${width}%`, background: color }} />
-    </div>
-  );
-}
-
 function SciNote({ children, type = 'info' }) {
   const styles = {
     info: { border: 'border-blue-500/20', bg: 'bg-blue-500/[0.04]', text: 'text-blue-200/80', icon: <Info className="w-3.5 h-3.5 text-blue-400 flex-shrink-0" /> },
@@ -80,14 +58,17 @@ function TabButton({ id, label, icon: Icon, active, onClick }) {
   return (
     <button
       onClick={() => onClick(id)}
-      className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all whitespace-nowrap
+      className={`relative flex items-center gap-2.5 px-5 py-3 rounded-xl text-sm font-semibold transition-all whitespace-nowrap
         ${active
-          ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/30'
-          : 'text-slate-500 hover:text-slate-300 hover:bg-white/[0.03]'
+          ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/40 shadow-[0_0_20px_rgba(6,182,212,0.15)] ring-1 ring-cyan-500/30'
+          : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.04] border border-transparent'
         }`}
     >
-      {Icon && <Icon className="w-3.5 h-3.5" />}
-      {label}
+      {Icon && <Icon className={`w-4 h-4 ${active ? 'text-cyan-400' : 'text-slate-400'}`} />}
+      <span>{label}</span>
+      {active && (
+        <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-8 h-0.5 bg-gradient-to-r from-cyan-400 to-blue-500 rounded-full" />
+      )}
     </button>
   );
 }
@@ -108,63 +89,320 @@ function SectionHeader({ title, subtitle, badge }) {
   );
 }
 
-// ─── Tab content panels ────────────────────────────────────────────────────
+// ─── 1. OverviewTab (Executive Summary, No Clutter) ───────────────────────
 
-function OverviewTab({ job, report, outputs, file }) {
+function OverviewTab({
+  job,
+  report,
+  outputs,
+  file,
+  classification,
+  onNavigateTab,
+  activeApp = 'research',
+}) {
+  const [sliderBaseline, setSliderBaseline] = useState('reference');
   const evaluation = report.evaluation || {};
-  const hasEval = evaluation.status === 'reference_available' &&
-    [evaluation.psnr, evaluation.ssim, evaluation.sam].every(v => Number.isFinite(Number(v)));
+  const hasRefAvailable = evaluation.reference_available === true || evaluation.status === 'reference_available' || evaluation.status === 'matched';
+  const hasEval = hasRefAvailable &&
+    [evaluation.psnr, evaluation.ssim, evaluation.sam].some(v => v != null && Number.isFinite(Number(v)));
   const runtime = report.runtime || {};
   const sr = report.super_resolution || {};
   const input = report.input || {};
+  const unc = report.uncertainty || outputs.uncertainty || {};
+
+  const [compareMode, setCompareMode] = useState(hasRefAvailable ? 'ref_vs_sr' : 'native_vs_sr');
+
+  useEffect(() => {
+    if (hasRefAvailable) {
+      setCompareMode('ref_vs_sr');
+    } else {
+      setCompareMode('native_vs_sr');
+    }
+  }, [hasRefAvailable]);
+
+  const originalRgbUrl = file(outputs.original_preview || 'input/original_preview.png');
+  const hrRefRgbUrl = file(outputs.hr_reference_preview || 'reference/aligned_reference_preview.png');
+  const bicubicPreviewUrl = file('preprocessing/hr_reference_preview.png');
+  const srRgbUrl = file(outputs.super_resolution_preview || 'super_resolution/sr_preview.png');
+
+  let activeLeftUrl = originalRgbUrl;
+  let activeRightUrl = srRgbUrl;
+  let activeLeftLabel = '◀ INPUT · 10 m (native)';
+  let activeRightLabel = 'PIXELSIGHT SR · ~2.5 m (4×) ▶';
+  let activeCaption = 'Left: Native 10m Sentinel-2 input · Right: LDSR-S2 2.5m diffusion';
+
+  if (hasRefAvailable) {
+    if (compareMode === 'ref_vs_sr') {
+      activeLeftUrl = hrRefRgbUrl;
+      activeRightUrl = srRgbUrl;
+      activeLeftLabel = '◀ HR REFERENCE · 2.5 m Ground Truth';
+      activeRightLabel = 'PIXELSIGHT SR · ~2.5 m (4×) ▶';
+      activeCaption = 'Left: External High-Resolution Reference (2.5m) · Right: PixelSight LDSR-S2 SR (2.5m)';
+    } else if (compareMode === 'ref_vs_native') {
+      activeLeftUrl = hrRefRgbUrl;
+      activeRightUrl = originalRgbUrl;
+      activeLeftLabel = '◀ HR REFERENCE · 2.5 m Ground Truth';
+      activeRightLabel = 'NATIVE INPUT · 10 m ▶';
+      activeCaption = 'Left: External High-Resolution Reference (2.5m) · Right: Native Sentinel-2 Input (10m)';
+    } else {
+      activeLeftUrl = originalRgbUrl;
+      activeRightUrl = srRgbUrl;
+      activeLeftLabel = '◀ NATIVE INPUT · 10 m (native)';
+      activeRightLabel = 'PIXELSIGHT SR · ~2.5 m (4×) ▶';
+      activeCaption = 'Left: Native 10m Sentinel-2 input · Right: PixelSight LDSR-S2 SR (2.5m)';
+    }
+  } else {
+    if (compareMode === 'upscale_vs_sr') {
+      activeLeftUrl = bicubicPreviewUrl;
+      activeRightUrl = srRgbUrl;
+      activeLeftLabel = '◀ NATIVE INPUT · 4× Display Upscale';
+      activeRightLabel = 'PIXELSIGHT SR · ~2.5 m (4×) ▶';
+      activeCaption = 'Left: Native Input 4× Bicubic Display Upscale · Right: LDSR-S2 Diffusion SR (2.5m)';
+    } else {
+      activeLeftUrl = originalRgbUrl;
+      activeRightUrl = srRgbUrl;
+      activeLeftLabel = '◀ NATIVE INPUT · 10 m (native)';
+      activeRightLabel = 'PIXELSIGHT SR · ~2.5 m (4×) ▶';
+      activeCaption = 'Left: Native 10m Sentinel-2 input · Right: LDSR-S2 2.5m diffusion';
+    }
+  }
+
+  const cropData = outputs.crop || report.crop_analysis;
+  const urbanData = outputs.urban || report.urban_analysis;
 
   return (
     <div className="space-y-8">
       <SectionHeader
-        title="Job Overview"
-        subtitle={`Job ${job.job_id} — LDSR-S2 4× Super-Resolution`}
+        title="Results Overview"
+        subtitle={`Job ${job.job_id} — PixelSight LDSR-S2 4× Super-Resolution Pipeline`}
         badge="completed"
       />
 
-      {/* Key stats */}
+      {/* Hero Interactive SR Visualization (Section 15 & 19) */}
+      <div className="card overflow-hidden p-4 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2 px-1 text-xs">
+          <span className="text-slate-400 font-medium">Comparison Mode:</span>
+          <div className="flex items-center gap-1.5 bg-slate-900/90 p-1 rounded-lg border border-slate-800">
+            {hasRefAvailable ? (
+              <>
+                <button
+                  onClick={() => setCompareMode('ref_vs_sr')}
+                  className={`px-2.5 py-1 rounded text-[11px] font-semibold transition-all ${
+                    compareMode === 'ref_vs_sr'
+                      ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  HR Reference ↔ SR
+                </button>
+                <button
+                  onClick={() => setCompareMode('ref_vs_native')}
+                  className={`px-2.5 py-1 rounded text-[11px] font-semibold transition-all ${
+                    compareMode === 'ref_vs_native'
+                      ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  HR Reference ↔ Native
+                </button>
+                <button
+                  onClick={() => setCompareMode('native_vs_sr')}
+                  className={`px-2.5 py-1 rounded text-[11px] font-semibold transition-all ${
+                    compareMode === 'native_vs_sr'
+                      ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  Native ↔ SR
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  onClick={() => setCompareMode('native_vs_sr')}
+                  className={`px-2.5 py-1 rounded text-[11px] font-semibold transition-all ${
+                    compareMode === 'native_vs_sr'
+                      ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  Native 10m ↔ SR
+                </button>
+                <button
+                  onClick={() => setCompareMode('upscale_vs_sr')}
+                  className={`px-2.5 py-1 rounded text-[11px] font-semibold transition-all ${
+                    compareMode === 'upscale_vs_sr'
+                      ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  4× Display Upscale ↔ SR
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+
+        <div className="h-[420px] rounded-xl overflow-hidden border border-white/[0.08] bg-black/40">
+          <CompareSlider
+            leftSrc={activeLeftUrl}
+            rightSrc={activeRightUrl}
+            leftLabel={activeLeftLabel}
+            rightLabel={activeRightLabel}
+          />
+        </div>
+        <div className="px-2 py-0.5 text-xs text-slate-500 flex justify-between">
+          <span>{activeCaption}</span>
+          <span>Scale: 10 m → ~2.5 m equivalent (4×)</span>
+        </div>
+      </div>
+
+      {/* Key Processing Metrics */}
       <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Metric label="Model" value="LDSR-S2" note="Latent Diffusion SR" />
+        <Metric label="Model" value="LDSR-S2" note="Latent Diffusion Super-Resolution" />
         <Metric label="Scale" value={`${sr.scale ?? 4}×`} note="128 → 512 px tiles" />
         <Metric label="Diffusion steps" value={sr.sampling_steps ?? 100} note="per tile" />
         <Metric label="Runtime" value={`${Number(runtime.seconds || 0).toFixed(1)} s`} note={runtime.device || 'device'} />
       </div>
 
-      {/* Input details */}
-      <div className="card p-6">
-        <div className="text-xs uppercase tracking-wider text-cyan-400 font-semibold mb-4">Input Raster</div>
-        <div className="grid sm:grid-cols-2 gap-x-8">
-          <MetricRow label="Width" value={input.width} suffix=" px" />
-          <MetricRow label="Height" value={input.height} suffix=" px" />
-          <MetricRow label="Bands" value={input.band_names?.join(' / ') || input.bands} />
-          <MetricRow label="CRS" value={input.crs} />
-          <MetricRow label="Format" value={input.format} />
-          <MetricRow label="Compatible" value={input.compatible ? 'Yes' : 'No'} />
+      {/* Compact Classification Summary Card (Only if activeApp is urban or classification) */}
+      {(activeApp === 'urban' || activeApp === 'classification') && classification && (
+        <ClassificationSummaryCard
+          classification={classification}
+          onNavigate={() => onNavigateTab('classification')}
+          onNavigateGroundTruth={() => onNavigateTab('ground_truth')}
+        />
+      )}
+
+      {/* High-level Application Summary Card (Crop Monitoring only) */}
+      {activeApp === 'crop' && cropData && (
+        <div className="card p-5 space-y-4 border border-emerald-500/20 bg-emerald-950/[0.08]">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5 text-emerald-400 font-semibold text-sm">
+              <Sprout className="w-4 h-4" />
+              <span>Vegetation & Canopy Monitoring Summary</span>
+            </div>
+            <button
+              onClick={() => onNavigateTab('vegetation')}
+              className="text-xs text-emerald-300 hover:text-white flex items-center gap-1 font-semibold transition-colors"
+            >
+              Open Full Vegetation Workspace →
+            </button>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 font-mono text-xs">
+            <div className="p-3 rounded-xl bg-slate-900/70 border border-white/[0.04]">
+              <span className="text-[10px] uppercase text-slate-500 block">Native Mean NDVI</span>
+              <span className="text-emerald-400 font-bold text-lg">
+                {cropData.statistics?.native?.mean != null ? cropData.statistics.native.mean.toFixed(4) : '—'}
+              </span>
+            </div>
+            <div className="p-3 rounded-xl bg-slate-900/70 border border-white/[0.04]">
+              <span className="text-[10px] uppercase text-slate-500 block">SR Mean NDVI</span>
+              <span className="text-emerald-400 font-bold text-lg">
+                {cropData.statistics?.super_resolution?.mean != null ? cropData.statistics.super_resolution.mean.toFixed(4) : '—'}
+              </span>
+            </div>
+            <div className="p-3 rounded-xl bg-slate-900/70 border border-white/[0.04]">
+              <span className="text-[10px] uppercase text-slate-500 block">Consistency MAE</span>
+              <span className="text-cyan-300 font-bold text-lg">
+                {cropData.consistency_metrics?.mae != null ? cropData.consistency_metrics.mae.toFixed(4) : '—'}
+              </span>
+            </div>
+            <div className="p-3 rounded-xl bg-slate-900/70 border border-white/[0.04]">
+              <span className="text-[10px] uppercase text-slate-500 block">Canopy Stress</span>
+              <span className="text-amber-400 font-bold text-lg">
+                {cropData.canopy_distribution?.low_or_potential_stress_fraction != null
+                  ? `${(cropData.canopy_distribution.low_or_potential_stress_fraction * 100).toFixed(1)}%`
+                  : '—'}
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* High-level Application Summary Card (Urban Analysis only) */}
+      {activeApp === 'urban' && urbanData && (
+        <div className="card p-5 space-y-4 border border-cyan-500/20 bg-cyan-950/[0.08]">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5 text-cyan-400 font-semibold text-sm">
+              <Building2 className="w-4 h-4" />
+              <span>Urban Infrastructure Summary</span>
+            </div>
+            <button
+              onClick={() => onNavigateTab('urban')}
+              className="text-xs text-cyan-300 hover:text-white flex items-center gap-1 font-semibold transition-colors"
+            >
+              Open Full Urban Workspace →
+            </button>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 font-mono text-xs">
+            <div className="p-3 rounded-xl bg-slate-900/70 border border-white/[0.04]">
+              <span className="text-[10px] uppercase text-slate-500 block">Vegetation Clusters</span>
+              <span className="text-emerald-400 font-bold text-lg">
+                {urbanData.trees ?? urbanData.tree_clusters ?? '—'}
+              </span>
+            </div>
+            <div className="p-3 rounded-xl bg-slate-900/70 border border-white/[0.04]">
+              <span className="text-[10px] uppercase text-slate-500 block">Built-up Regions</span>
+              <span className="text-amber-400 font-bold text-lg">
+                {urbanData.houses ?? urbanData.estimated_building_clusters ?? '—'}
+              </span>
+            </div>
+            <div className="p-3 rounded-xl bg-slate-900/70 border border-white/[0.04]">
+              <span className="text-[10px] uppercase text-slate-500 block">Other Objects</span>
+              <span className="text-cyan-300 font-bold text-lg">
+                {urbanData.other_objects ?? '—'}
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* High-level Uncertainty Overview */}
+      <div className="card p-5 space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-amber-400 font-semibold">
+            <Activity className="w-4 h-4" />
+            <span>Generative Uncertainty (Diffusion Variance)</span>
+          </div>
+          <button
+            onClick={() => onNavigateTab('uncertainty')}
+            className="text-xs text-slate-400 hover:text-white flex items-center gap-1 font-medium transition-colors"
+          >
+            Inspect Uncertainty Map →
+          </button>
+        </div>
+        <div className="grid sm:grid-cols-3 gap-3">
+          <Metric label="Mean σ" value={unc.mean != null ? unc.mean.toFixed(4) : '—'} note="Normalized pixel std" />
+          <Metric label="Peak σ" value={unc.peak != null ? unc.peak.toFixed(4) : '—'} note="Maximum generative variance" highlight />
+          <Metric label="High Risk Pixels" value={unc.high_percent != null ? `${unc.high_percent.toFixed(1)}%` : '—'} note="Regions requiring verification" highlight />
         </div>
       </div>
 
-      {/* Evaluation summary */}
+      {/* High-level Evaluation Summary */}
       <div className="card p-6">
-        <div className="text-xs uppercase tracking-wider text-cyan-400 font-semibold mb-4">Evaluation Summary</div>
+        <div className="flex items-center justify-between mb-4">
+          <div className="text-xs uppercase tracking-wider text-cyan-400 font-semibold">
+            Quantitative Quality Summary
+          </div>
+          <button
+            onClick={() => onNavigateTab('evaluation')}
+            className="text-xs text-cyan-400 hover:text-cyan-300 font-medium"
+          >
+            View Full Evaluation Suite →
+          </button>
+        </div>
         {hasEval ? (
           <div className="space-y-4">
             <div className="grid sm:grid-cols-3 gap-3">
-              <Metric label="PSNR" value={`${Number(evaluation.psnr).toFixed(2)} dB`} note="input vs SR" />
-              <Metric label="SSIM" value={Number(evaluation.ssim).toFixed(4)} note="input vs SR" />
-              <Metric label="SAM" value={`${Number(evaluation.sam).toFixed(2)}°`} note="input vs SR" />
+              <Metric label="PSNR" value={`${Number(evaluation.psnr).toFixed(2)} dB`} note="vs HR reference" />
+              <Metric label="SSIM" value={Number(evaluation.ssim).toFixed(4)} note="vs HR reference" />
+              <Metric label="SAM" value={`${Number(evaluation.sam).toFixed(2)}°`} note="Spectral angle error" />
             </div>
-            <SciNote type="warning">
-              These metrics compare the uploaded input (resampled to the SR grid) against the generated SR output.
-              They are <strong>self-consistency diagnostics</strong>, NOT validation against independent high-resolution ground truth.
-            </SciNote>
           </div>
         ) : (
           <SciNote type="info">
-            {evaluation.reason || 'Reference-based metrics are not available. Process a new image with a high-resolution reference to generate evaluation metrics.'}
+            {evaluation.reason || 'Independent reference-based metrics are not available for this AOI. Self-consistency diagnostics are used.'}
           </SciNote>
         )}
       </div>
@@ -172,321 +410,355 @@ function OverviewTab({ job, report, outputs, file }) {
       {/* Download shortcuts */}
       <div className="grid sm:grid-cols-3 gap-3">
         <a className="btn-ghost justify-center" href={file('super_resolution/sr.tif')} download>
-          <ImageIcon className="w-4 h-4" /> SR GeoTIFF
+          <ImageIcon className="w-4 h-4 text-cyan-400" /> SR GeoTIFF
         </a>
         <a className="btn-ghost justify-center" href={file('report/report.html')} target="_blank" rel="noreferrer">
-          <ExternalLink className="w-4 h-4" /> HTML Report
+          <ExternalLink className="w-4 h-4 text-emerald-400" /> HTML Report
         </a>
         <a className="btn-ghost justify-center" href={file('report/report.json')} download="pixelsight-report.json">
-          <Download className="w-4 h-4" /> JSON Report
+          <Download className="w-4 h-4 text-slate-400" /> JSON Report
         </a>
       </div>
     </div>
   );
 }
 
-function SuperResolutionTab({ file, outputs }) {
-  const original = file(outputs.original_preview || 'input/original_preview.png');
-  const sr = file(outputs.super_resolution_preview || 'super_resolution/sr_preview.png');
-  const srTif = file(outputs.super_resolution || 'super_resolution/sr.tif');
+// ─── 2. VegetationTab (Dedicated Crop & Canopy Workspace) ──────────────────
+
+function VegetationTab({ file, outputs, report }) {
+  const [activeLayer, setActiveLayer] = useState('sr_ndvi');
+  const [viewMode, setViewMode] = useState('slider');
+  const [sliderBaseline, setSliderBaseline] = useState('reference');
+
+  const cropData = outputs.crop || report.crop_analysis || {};
+  const stats = cropData.statistics || {};
+  const nativeStats = stats.native || {};
+  const srStats = stats.super_resolution || {};
+  const consistency = cropData.consistency_metrics || {};
+  const canopy = cropData.canopy_distribution || {};
+
+  const evaluation = report.evaluation || {};
+  const hasRefAvailable = evaluation.reference_available === true || evaluation.status === 'reference_available' || evaluation.status === 'matched';
+
+  const nativeNdviUrl = file('application/crop/previews/ndvi_native.png');
+  const srNdviUrl = file('application/crop/previews/ndvi_sr.png');
+  const diffPreviewUrl = file('application/crop/previews/ndvi_difference.png');
+  const originalRgbUrl = file('input/original_preview.png');
+  const hrRefRgbUrl = file(outputs.hr_reference_preview || 'reference/aligned_reference_preview.png');
+  const srRgbUrl = file('super_resolution/sr_preview.png');
+
+  const activeLeftUrl = sliderBaseline === 'reference' ? hrRefRgbUrl : originalRgbUrl;
+  const activeLeftLabel = sliderBaseline === 'reference'
+    ? (hasRefAvailable ? '◀ HR REFERENCE · 2.5 m Ground Truth' : '◀ NATIVE INPUT · 4× Display Upscale')
+    : '◀ INPUT · 10 m (native)';
+
+  const currentPreview = activeLayer === 'diff' ? diffPreviewUrl : activeLayer === 'native' ? nativeNdviUrl : srNdviUrl;
 
   return (
     <div className="space-y-8">
       <SectionHeader
-        title="Super-Resolution Output"
-        subtitle="Drag the slider to compare the original input and the 4× LDSR-S2 output."
-        badge="LDSR-S2"
+        title="Vegetation & Canopy Monitoring"
+        subtitle="Downstream biophysical analysis computing NDVI, canopy density, and radiometric consistency across Sentinel-2 bands."
+        badge="vegetation workspace"
       />
 
-      <div className="card overflow-hidden">
-        <CompareSlider beforeSrc={original} afterSrc={sr} />
-        <div className="px-5 py-3 text-xs text-slate-500 border-t border-white/[0.05] flex justify-between">
-          <span>Input: 10 m native resolution</span>
-          <span>Output: ~2.5 m equivalent (4×)</span>
+      <div className="grid lg:grid-cols-[1.2fr_0.8fr] gap-8 items-start">
+        {/* Left Column: Visualizers */}
+        <div className="space-y-6">
+          <div className="card p-5">
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+              <div className="flex items-center gap-2 text-sm font-semibold text-white">
+                <Layers className="w-4 h-4 text-emerald-400" />
+                <span>Vegetation &amp; Surface Visualizer</span>
+              </div>
+              <div className="flex items-center gap-2 text-xs">
+                <button
+                  onClick={() => setViewMode('slider')}
+                  className={`px-3 py-1.5 rounded-lg font-medium transition-all ${
+                    viewMode === 'slider' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-white/[0.04] text-slate-400'
+                  }`}
+                >
+                  Swipe Comparison
+                </button>
+                <button
+                  onClick={() => setViewMode('single')}
+                  className={`px-3 py-1.5 rounded-lg font-medium transition-all ${
+                    viewMode === 'single' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-white/[0.04] text-slate-400'
+                  }`}
+                >
+                  NDVI Layer View
+                </button>
+              </div>
+            </div>
+
+            {viewMode === 'slider' ? (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between px-1 text-xs">
+                  <span className="text-slate-400 font-medium">Compare LDSR-S2 SR against:</span>
+                  <div className="flex items-center gap-1.5 bg-slate-900/90 p-1 rounded-lg border border-slate-800">
+                    <button
+                      onClick={() => setSliderBaseline('reference')}
+                      className={`px-2.5 py-1 rounded text-[11px] font-semibold transition-all ${
+                        sliderBaseline === 'reference'
+                          ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 shadow-sm'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      {hasRefAvailable ? 'HR Reference (2.5m)' : '4× Display Upscale'}
+                    </button>
+                    <button
+                      onClick={() => setSliderBaseline('native')}
+                      className={`px-2.5 py-1 rounded text-[11px] font-semibold transition-all ${
+                        sliderBaseline === 'native'
+                          ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 shadow-sm'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      Native 10m Input
+                    </button>
+                  </div>
+                </div>
+
+                <div className="h-[420px] rounded-xl overflow-hidden border border-white/[0.08] bg-black/40">
+                  <CompareSlider
+                    leftSrc={activeLeftUrl}
+                    rightSrc={srRgbUrl}
+                    leftLabel={activeLeftLabel}
+                    rightLabel="SR OUTPUT · ~2.5 m (4×) ▶"
+                  />
+                </div>
+                <div className="flex items-center justify-between text-xs text-slate-500 px-1">
+                  <span>
+                    {sliderBaseline === 'reference'
+                      ? (hasRefAvailable ? 'Left: External HR reference (2.5m) · Right: LDSR-S2 2.5m diffusion' : 'Left: Native input 4× display upscale · Right: LDSR-S2 2.5m diffusion')
+                      : 'Left: Native 10m Sentinel-2 input · Right: LDSR-S2 2.5m diffusion'}
+                  </span>
+                  <span>Switch to NDVI Layer View for canopy maps</span>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setActiveLayer('native')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold ${
+                      activeLayer === 'native' ? 'bg-emerald-500 text-slate-950' : 'bg-white/[0.04] text-slate-400'
+                    }`}
+                  >
+                    Native NDVI
+                  </button>
+                  <button
+                    onClick={() => setActiveLayer('sr_ndvi')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold ${
+                      activeLayer === 'sr_ndvi' ? 'bg-emerald-500 text-slate-950' : 'bg-white/[0.04] text-slate-400'
+                    }`}
+                  >
+                    SR NDVI (4x)
+                  </button>
+                  <button
+                    onClick={() => setActiveLayer('diff')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold ${
+                      activeLayer === 'diff' ? 'bg-emerald-500 text-slate-950' : 'bg-white/[0.04] text-slate-400'
+                    }`}
+                  >
+                    Difference Map
+                  </button>
+                </div>
+                <div className="h-[420px] rounded-xl overflow-hidden border border-white/[0.08] bg-black/40 flex items-center justify-center">
+                  <img src={currentPreview} alt="NDVI Layer" className="max-h-full max-w-full object-contain" />
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Scientific Interpretation Card */}
+          <div className="card p-5 space-y-4">
+            <div className="flex items-center gap-2 text-sm font-semibold text-white">
+              <Activity className="w-4 h-4 text-emerald-400" />
+              <span>Scientific Agronomical Interpretation</span>
+            </div>
+            <div className="space-y-2 text-sm text-slate-300 leading-relaxed">
+              {cropData.interpretations?.map((txt, idx) => (
+                <div key={idx} className="flex items-start gap-2.5">
+                  <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 mt-2 shrink-0" />
+                  <span>{txt}</span>
+                </div>
+              ))}
+            </div>
+
+            {/* Limitations Callout */}
+            <div className="rounded-xl p-4 bg-amber-500/10 border border-amber-500/20 text-xs text-amber-200/90 space-y-2">
+              <div className="flex items-center gap-2 font-semibold text-amber-300">
+                <AlertTriangle className="w-4 h-4" />
+                <span>Limitations & Verification Disclaimer</span>
+              </div>
+              <ul className="list-disc pl-5 space-y-1 text-slate-400">
+                {cropData.limitations?.map((lim, idx) => (
+                  <li key={idx}>{lim}</li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        {/* Right Column: Radiometric Consistency & Canopy Distribution */}
+        <div className="space-y-6">
+          {/* Consistency Metrics Card */}
+          <div className="card p-5 space-y-4">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-semibold text-white">Radiometric Consistency Metrics</span>
+              <span className="text-[10px] text-slate-500 font-mono">Formula: (B08-B04)/(B08+B04)</span>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="rounded-xl p-3 bg-white/[0.03] border border-white/[0.05]">
+                <div className="text-[10px] uppercase tracking-wider text-slate-500">Native Mean NDVI</div>
+                <div className="text-xl font-bold font-mono text-emerald-300 mt-1">
+                  {nativeStats.mean != null ? nativeStats.mean.toFixed(4) : '—'}
+                </div>
+                <div className="text-[10px] text-slate-600 mt-0.5">σ = {nativeStats.std?.toFixed(4) ?? '—'}</div>
+              </div>
+              <div className="rounded-xl p-3 bg-white/[0.03] border border-white/[0.05]">
+                <div className="text-[10px] uppercase tracking-wider text-slate-500">SR Mean NDVI</div>
+                <div className="text-xl font-bold font-mono text-emerald-300 mt-1">
+                  {srStats.mean != null ? srStats.mean.toFixed(4) : '—'}
+                </div>
+                <div className="text-[10px] text-slate-600 mt-0.5">σ = {srStats.std?.toFixed(4) ?? '—'}</div>
+              </div>
+              <div className="rounded-xl p-3 bg-white/[0.03] border border-white/[0.05]">
+                <div className="text-[10px] uppercase tracking-wider text-slate-500">MAE (Consistency)</div>
+                <div className="text-xl font-bold font-mono text-cyan-300 mt-1">
+                  {consistency.mae != null ? consistency.mae.toFixed(4) : '—'}
+                </div>
+                <div className="text-[10px] text-slate-600 mt-0.5">Mean absolute diff</div>
+              </div>
+              <div className="rounded-xl p-3 bg-white/[0.03] border border-white/[0.05]">
+                <div className="text-[10px] uppercase tracking-wider text-slate-500">RMSE</div>
+                <div className="text-xl font-bold font-mono text-cyan-300 mt-1">
+                  {consistency.rmse != null ? consistency.rmse.toFixed(4) : '—'}
+                </div>
+                <div className="text-[10px] text-slate-600 mt-0.5">Root mean square error</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Canopy Breakdown Card */}
+          <div className="card p-5 space-y-4">
+            <span className="text-sm font-semibold text-white">Canopy Density Distribution</span>
+            <div className="space-y-3">
+              <div>
+                <div className="flex justify-between text-xs mb-1">
+                  <span className="text-slate-400">Potential Stress / Low Veg (&lt; 0.2)</span>
+                  <span className="font-mono text-amber-300">
+                    {((canopy.low_or_potential_stress_fraction || 0) * 100).toFixed(1)}%
+                  </span>
+                </div>
+                <div className="h-2 rounded-full bg-slate-800 overflow-hidden">
+                  <div
+                    className="h-full bg-amber-400 rounded-full"
+                    style={{ width: `${(canopy.low_or_potential_stress_fraction || 0) * 100}%` }}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <div className="flex justify-between text-xs mb-1">
+                  <span className="text-slate-400">Moderate Vegetation (0.2 – 0.5)</span>
+                  <span className="font-mono text-emerald-400">
+                    {((canopy.moderate_vegetation_fraction || 0) * 100).toFixed(1)}%
+                  </span>
+                </div>
+                <div className="h-2 rounded-full bg-slate-800 overflow-hidden">
+                  <div
+                    className="h-full bg-emerald-500 rounded-full"
+                    style={{ width: `${(canopy.moderate_vegetation_fraction || 0) * 100}%` }}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <div className="flex justify-between text-xs mb-1">
+                  <span className="text-slate-400">Dense Vegetation (&gt; 0.5)</span>
+                  <span className="font-mono text-emerald-300">
+                    {((canopy.dense_vegetation_fraction || 0) * 100).toFixed(1)}%
+                  </span>
+                </div>
+                <div className="h-2 rounded-full bg-slate-800 overflow-hidden">
+                  <div
+                    className="h-full bg-emerald-400 rounded-full"
+                    style={{ width: `${(canopy.dense_vegetation_fraction || 0) * 100}%` }}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
-
-      <div className="grid sm:grid-cols-2 gap-4">
-        <div className="card p-5">
-          <div className="text-xs uppercase tracking-wider text-slate-500 mb-3">Input Preview</div>
-          <img src={original} alt="Original input preview" className="w-full rounded-lg object-cover" />
-          <a href={original} download className="btn-ghost mt-3 w-full justify-center text-xs">
-            <Download className="w-3.5 h-3.5" /> Download preview
-          </a>
-        </div>
-        <div className="card p-5">
-          <div className="text-xs uppercase tracking-wider text-cyan-400 mb-3">SR Output Preview</div>
-          <img src={sr} alt="Super-resolved output preview" className="w-full rounded-lg object-cover" />
-          <a href={sr} download className="btn-ghost mt-3 w-full justify-center text-xs">
-            <Download className="w-3.5 h-3.5" /> Download preview
-          </a>
-        </div>
-      </div>
-
-      <div className="card p-5">
-        <a className="btn-primary w-full justify-center" href={srTif} download>
-          <ImageIcon className="w-4 h-4" /> Download Super-Resolved GeoTIFF
-        </a>
-        <p className="text-xs text-slate-600 mt-3 text-center">
-          GeoTIFF preserves the original georeferencing metadata at 4× resolution.
-        </p>
-      </div>
-
-      <SciNote type="warning">
-        The output is a super-resolved representation generated by a stochastic diffusion model. Sub-pixel detail
-        may reflect model priors, not observed ground truth. Always validate with independent high-resolution references.
-      </SciNote>
     </div>
   );
 }
 
-function UncertaintyTab({ file, report, outputs }) {
+// ─── 3. UrbanTab (Dedicated Urban & Land-Cover Analysis) ───────────────────
+
+function UrbanTab({ file, outputs, report }) {
+  const urban = report.urban_analysis || outputs.urban || {};
+  const planningMap = file(urban.map || outputs.urban_planning_map || 'application/urban/previews/segmentation_sr.png');
+  const inputPlanningMap = file(outputs.input_urban_planning_map || 'application/urban/previews/segmentation_native.png');
+  const builtupPreview = file('application/urban/previews/builtup_preview.png');
+  const diffPreview = file('application/urban/previews/urban_difference.png');
+
+  return (
+    <div className="space-y-8">
+      <SectionHeader
+        title="Urban & Infrastructure Analysis"
+        subtitle="Downstream structural and land-use analysis detecting built-up boundaries and green spaces."
+        badge="urban workspace"
+      />
+
+      <div className="grid sm:grid-cols-3 gap-3">
+        <Metric label="Vegetation regions" value={urban.trees ?? urban.tree_clusters ?? '—'} note="Connected clusters" />
+        <Metric label="Built-up regions" value={urban.houses ?? urban.estimated_building_clusters ?? '—'} note="Connected building clusters" />
+        <Metric label="Other classes" value={urban.other_objects ?? '—'} note="All remaining pixels" />
+      </div>
+
+      <div className="grid md:grid-cols-2 gap-6">
+        <div className="card p-5 space-y-3">
+          <div className="text-xs uppercase tracking-wider text-cyan-400 font-semibold">PixelSight SR Segmentation</div>
+          <img src={planningMap} alt="SR Segmentation preview" className="w-full h-64 object-contain rounded-lg bg-black/40" onError={e => { e.target.style.display = 'none'; }} />
+        </div>
+        <div className="card p-5 space-y-3">
+          <div className="text-xs uppercase tracking-wider text-slate-400 font-semibold">Native Input Segmentation</div>
+          <img src={inputPlanningMap} alt="Native segmentation preview" className="w-full h-64 object-contain rounded-lg bg-black/40" onError={e => { e.target.style.display = 'none'; }} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── 4. UncertaintyTab ─────────────────────────────────────────────────────
+
+function UncertaintyTab({ file, report, outputs, job }) {
+  const jobId = job?.job_id || report?.job_id || outputs?.job_id;
   const uncertainty = report.uncertainty || outputs.uncertainty || {};
-  const uncertaintyMap = file(uncertainty.map || outputs.uncertainty_map || 'uncertainty/uncertainty_map.png');
-  const uncertaintyTif = file(outputs.uncertainty_geotiff || 'uncertainty/uncertainty_map.tif');
 
   return (
     <div className="space-y-8">
       <SectionHeader
         title="Uncertainty Analysis"
-        subtitle="Stochastic diffusion variation — pixel-wise std across N independent LDSR-S2 seeds."
-        badge="NOT Bayesian"
+        subtitle="Stochastic diffusion variation across independent LDSR-S2 sampling trajectories."
+        badge="Stochastic Sampling"
       />
 
-      <div className="grid md:grid-cols-[1fr_0.8fr] gap-6 items-start">
-        <div>
-          <div className="card overflow-hidden border border-amber-500/20">
-            <img src={uncertaintyMap} alt="SR uncertainty map" className="w-full object-contain" />
-            <div className="px-4 py-2 text-xs text-amber-300/70 border-t border-amber-500/20">
-              Bright = high reconstruction disagreement · Dark = low uncertainty
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3 mt-3">
-            <a href={uncertaintyMap} download className="btn-ghost text-xs justify-center">
-              <Download className="w-3.5 h-3.5" /> PNG Map
-            </a>
-            <a href={uncertaintyTif} download className="btn-ghost text-xs justify-center">
-              <Download className="w-3.5 h-3.5" /> GeoTIFF
-            </a>
-          </div>
-        </div>
-
-        <div className="space-y-3">
-          <div className="grid grid-cols-2 gap-3">
-            <Metric label="Mean σ" value={uncertainty.mean != null ? uncertainty.mean.toFixed(4) : null} note="normalized std" />
-            <Metric label="Peak σ" value={uncertainty.peak != null ? uncertainty.peak.toFixed(4) : null} note="maximum value" highlight />
-            <Metric label="Low confidence" value={uncertainty.low_percent != null ? `${uncertainty.low_percent.toFixed(1)}%` : null} note="pixels" />
-            <Metric label="High risk" value={uncertainty.high_percent != null ? `${uncertainty.high_percent.toFixed(1)}%` : null} note="pixels" highlight />
-          </div>
-        </div>
-      </div>
-
-      <div className="card p-5 space-y-3">
-        <div className="text-xs uppercase tracking-wider text-slate-500 font-semibold">Mechanism</div>
-        <p className="text-sm text-slate-400 leading-relaxed">
-          Uncertainty is computed as the pixel-wise standard deviation across multiple independent LDSR-S2
-          diffusion runs using different random seeds. This quantifies <strong className="text-slate-200">stochastic generative variability</strong>,
-          not Bayesian epistemic model uncertainty.
-        </p>
-        <SciNote type="warning">
-          {uncertainty.limitation ||
-            'High uncertainty does not prove that SR detail is incorrect — it indicates that the diffusion model is sensitive to the noise schedule in that region. Regions with high uncertainty should be verified against reference imagery.'}
-        </SciNote>
-      </div>
+      <UncertaintyViewer
+        jobId={jobId}
+        uncertaintyData={uncertainty}
+        outputs={outputs}
+        basePath="uncertainty"
+      />
     </div>
   );
 }
 
-const ESA_CLASSES = [
-  { id: 0, name: 'Tree', color: '#28b45a', desc: 'Trees & closed forest canopy' },
-  { id: 1, name: 'Shrubland', color: '#78aa50', desc: 'Shrub and bush formations' },
-  { id: 2, name: 'Grassland', color: '#aad264', desc: 'Natural herbaceous vegetation' },
-  { id: 3, name: 'Cropland', color: '#dcbe46', desc: 'Cultivated agricultural fields' },
-  { id: 4, name: 'Built-up', color: '#d25a37', desc: 'Impervious structures & building clusters' },
-  { id: 5, name: 'Bare', color: '#96876e', desc: 'Bare soil, sand, and rock surfaces' },
-  { id: 6, name: 'Water', color: '#327dd2', desc: 'Permanent and seasonal open water' },
-  { id: 255, name: 'Ignore', color: '#1e293b', desc: 'No-data / unclassified background mask' },
-];
-
-function SegmentationTab({ file, report, outputs }) {
-  const urban = report.urban_analysis || outputs.urban_analysis || {};
-  const hasUrbanData = Boolean(urban.map || outputs.urban_planning_map || urban.object_counts || urban.trees);
-  const planningMap = file(urban.map || outputs.urban_planning_map || 'analysis/urban_planning_map.png');
-  const classifiedRaster = file(urban.classified_raster || outputs.urban_classification || 'analysis/urban_classes.tif');
-  const inputPlanningMap = file(outputs.input_urban_planning_map || 'analysis/input_urban_planning_map.png');
-  const comparison = urban.comparison || {};
-  const comparisonRows = Object.entries(comparison.classes || {});
-  const maximumCount = Math.max(1, ...comparisonRows.flatMap(([, item]) => [item.input_object_count || 0, item.sr_object_count || 0]));
-
-  if (!hasUrbanData) {
-    return (
-      <div className="space-y-6">
-        <SectionHeader
-          title="Land Cover Classification"
-          subtitle="WorldCover-proxy segmentation applied to the SR output."
-          badge="unavailable"
-        />
-        <div className="rounded-2xl p-6 bg-amber-950/20 border border-amber-500/30 space-y-4">
-          <div className="flex items-center gap-2.5 text-amber-300 font-bold text-sm">
-            <AlertTriangle className="w-5 h-5 text-amber-400" />
-            <span>Classification unavailable for this job</span>
-          </div>
-          <div className="grid md:grid-cols-3 gap-4 text-xs">
-            <div className="p-3.5 rounded-xl bg-slate-900/60 border border-white/[0.04]">
-              <span className="font-bold text-amber-300 uppercase tracking-wider text-[10px] block mb-1">Reason</span>
-              <p className="text-slate-300">Segmentation was either not selected for this application pipeline or the model checkpoint was not engaged.</p>
-            </div>
-            <div className="p-3.5 rounded-xl bg-slate-900/60 border border-white/[0.04]">
-              <span className="font-bold text-amber-300 uppercase tracking-wider text-[10px] block mb-1">Expected Resource</span>
-              <p className="text-slate-300 font-mono text-[11px]">checkpoints/segmentation/unet_worldcover_best.pth</p>
-            </div>
-            <div className="p-3.5 rounded-xl bg-slate-900/60 border border-white/[0.04]">
-              <span className="font-bold text-amber-300 uppercase tracking-wider text-[10px] block mb-1">How to Run</span>
-              <p className="text-slate-300">Run through the dedicated Land Cover Classification application or ensure the UNet weights are mounted.</p>
-            </div>
-          </div>
-        </div>
-
-        {/* 7-Class Guide */}
-        <div className="card p-5 space-y-3">
-          <span className="text-xs uppercase font-bold tracking-wider text-slate-400 block">
-            Supported ESA WorldCover Land-Cover Classes
-          </span>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-            {ESA_CLASSES.map(c => (
-              <div key={c.id} className="flex items-center gap-2.5 p-2 rounded-xl bg-slate-900/50 border border-white/[0.04] text-xs">
-                <span className="w-3.5 h-3.5 rounded-md flex-shrink-0" style={{ backgroundColor: c.color }} />
-                <div className="min-w-0">
-                  <span className="font-semibold text-slate-200 block truncate">{c.name}</span>
-                  <span className="text-[10px] text-slate-500 font-mono">ID {c.id}</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-8">
-      <SectionHeader
-        title="Land Cover Classification"
-        subtitle="WorldCover-proxy segmentation applied to the SR output. Objects are connected-region estimates."
-        badge="proxy labels"
-      />
-
-      <div className="grid sm:grid-cols-3 gap-3">
-        <Metric label="Vegetation regions" value={urban.trees ?? urban.tree_clusters} note="connected regions" />
-        <Metric label="Built-up regions" value={urban.houses ?? urban.estimated_building_clusters} note="connected regions" />
-        <Metric label="Other classes" value={urban.other_objects} note="all remaining" />
-      </div>
-
-      <div className="grid md:grid-cols-2 gap-6">
-        <div className="card p-5">
-          <div className="text-xs uppercase tracking-wider text-slate-500 mb-3">SR Output Classification</div>
-          <img src={planningMap} alt="Urban planning map" className="w-full rounded-lg" onError={e => e.target.style.display = 'none'} />
-          <div className="grid grid-cols-2 gap-2 mt-3">
-            <a href={planningMap} download className="btn-ghost text-xs justify-center">
-              <Download className="w-3.5 h-3.5" /> PNG
-            </a>
-            <a href={classifiedRaster} download className="btn-ghost text-xs justify-center">
-              <Download className="w-3.5 h-3.5" /> GeoTIFF
-            </a>
-          </div>
-        </div>
-        <div className="card p-5">
-          <div className="text-xs uppercase tracking-wider text-slate-500 mb-3">Input Classification</div>
-          <img src={inputPlanningMap} alt="Input classification map" className="w-full rounded-lg" onError={e => e.target.style.display = 'none'} />
-          <p className="text-xs text-slate-600 mt-2">Segmentation applied directly to the native 10 m input for comparison.</p>
-        </div>
-      </div>
-
-      {/* 7-Class Legend bar */}
-      <div className="card p-4">
-        <div className="text-xs uppercase tracking-wider text-slate-500 font-semibold mb-3">ESA WorldCover 7-Class Scheme</div>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-          {ESA_CLASSES.map(c => (
-            <div key={c.id} className="flex items-center gap-2 text-xs text-slate-300">
-              <span className="w-3 h-3 rounded" style={{ backgroundColor: c.color }} />
-              <span className="font-medium">{c.name}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Object class table */}
-      <div className="card p-5">
-        <div className="text-xs uppercase tracking-wider text-slate-500 font-semibold mb-4">Class-wise Counts</div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-xs uppercase tracking-wider text-slate-500 border-b border-white/[0.08]">
-                <th className="py-2 pr-4">Class</th>
-                <th className="py-2 pr-4">Objects</th>
-                <th className="py-2 pr-4">Pixels</th>
-                <th className="py-2">Area %</th>
-              </tr>
-            </thead>
-            <tbody>
-              {Object.entries(urban.object_counts || {}).map(([name, item]) => (
-                <tr key={name} className="border-b border-white/[0.05] text-slate-300">
-                  <td className="py-2 pr-4">{item.label || name}</td>
-                  <td className="py-2 pr-4 font-mono text-cyan-300">{item.object_count ?? '—'}</td>
-                  <td className="py-2 pr-4 font-mono">{item.pixel_count ?? '—'}</td>
-                  <td className="py-2 font-mono">{item.area_percent != null ? `${item.area_percent.toFixed(1)}%` : '—'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Comparison bars */}
-      {comparisonRows.length > 0 && (
-        <div className="card p-5">
-          <div className="text-xs uppercase tracking-wider text-slate-500 font-semibold mb-4">Input vs SR Object Counts</div>
-          <div className="space-y-5">
-            {comparisonRows.map(([name, item]) => (
-              <div key={name}>
-                <div className="flex items-center justify-between gap-4 mb-2">
-                  <span className="text-sm font-medium text-slate-200">{item.label || name}</span>
-                  <span className={`text-xs font-mono ${(item.object_count_change ?? 0) >= 0 ? 'text-emerald-300' : 'text-amber-300'}`}>
-                    {item.object_count_change >= 0 ? '+' : ''}{item.object_count_change} objects
-                  </span>
-                </div>
-                <div className="grid grid-cols-[52px_1fr_36px] items-center gap-3 mb-1">
-                  <span className="text-[10px] uppercase text-slate-500">Input</span>
-                  <ComparisonBar value={item.input_object_count || 0} maximum={maximumCount} color="#14b8a6" />
-                  <span className="text-right text-xs font-mono text-teal-300">{item.input_object_count ?? 0}</span>
-                </div>
-                <div className="grid grid-cols-[52px_1fr_36px] items-center gap-3">
-                  <span className="text-[10px] uppercase text-cyan-400">SR</span>
-                  <ComparisonBar value={item.sr_object_count || 0} maximum={maximumCount} color="#22d3ee" />
-                  <span className="text-right text-xs font-mono text-cyan-300">{item.sr_object_count ?? 0}</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Interpretation */}
-      {urban.interpretation && (
-        <div className="card p-5">
-          <div className="text-xs uppercase tracking-wider text-slate-500 font-semibold mb-3">Interpretation</div>
-          <p className="text-sm text-slate-300 leading-relaxed">{urban.interpretation}</p>
-        </div>
-      )}
-
-      <SciNote type="warning">
-        Segmentation uses proxy land cover labels (WorldCover-inspired). Object counts are connected-region estimates
-        and are NOT cadastral records, property surveys, or aerial photogrammetry results.
-        {urban.limitations?.[0] && ` ${urban.limitations[0]}`}
-      </SciNote>
-    </div>
-  );
-}
+// ─── 5. EvaluationTab ──────────────────────────────────────────────────────
 
 function EvaluationTab({ report, outputs }) {
   const evaluation = report.evaluation || {};
@@ -501,7 +773,6 @@ function EvaluationTab({ report, outputs }) {
         badge={evaluation.status === 'reference_available' ? 'reference_available' : 'reference_unavailable'}
       />
 
-      {/* Rich evaluation panel with gauge rings */}
       <EvaluationMetricsPanel evaluation={evaluation} uncertainty={uncertainty} />
 
       {interpretation && (
@@ -514,69 +785,7 @@ function EvaluationTab({ report, outputs }) {
   );
 }
 
-function ScientificStatusTab({ report }) {
-  const limitations = report.scientific_limitations || [];
-  const sr = report.super_resolution || {};
-  const runtime = report.runtime || {};
-
-  return (
-    <div className="space-y-8">
-      <SectionHeader
-        title="Scientific Status & Limitations"
-        subtitle="Transparency notice — all methodological constraints are listed here."
-        badge="research integrity"
-      />
-
-      {/* Model details */}
-      <div className="card p-5">
-        <div className="text-xs uppercase tracking-wider text-cyan-400 font-semibold mb-4">Model & Protocol</div>
-        <div className="grid sm:grid-cols-2 gap-x-8">
-          <MetricRow label="Model" value={sr.model || 'LDSR-S2'} />
-          <MetricRow label="Scale factor" value={`${sr.scale || 4}×`} />
-          <MetricRow label="Diffusion steps" value={sr.sampling_steps || 100} />
-          <MetricRow label="Tile size" value={sr.input_tile_size ? sr.input_tile_size.join(' × ') : '128 × 128'} suffix=" px" />
-          <MetricRow label="Overlap" value={sr.overlap ?? 12} suffix=" px" />
-          <MetricRow label="Device" value={runtime.device || 'cpu'} />
-          <MetricRow label="Runtime" value={runtime.seconds ? Number(runtime.seconds).toFixed(2) : '—'} suffix=" s" />
-          <MetricRow label="Output GSD" value="~2.5 m equivalent" note="not physical observation" />
-        </div>
-      </div>
-
-      {/* Limitations */}
-      <div className="card p-5">
-        <div className="text-xs uppercase tracking-wider text-amber-400 font-semibold mb-4">Scientific Limitations</div>
-        <div className="space-y-2">
-          {limitations.length === 0 ? (
-            <p className="text-sm text-slate-500">No limitations recorded for this job.</p>
-          ) : (
-            limitations.map((item, i) => (
-              <div key={i} className="flex items-start gap-2 text-xs text-slate-400 leading-relaxed py-1.5 border-b border-white/[0.04] last:border-0">
-                <AlertTriangle className="w-3 h-3 text-amber-400/70 flex-shrink-0 mt-0.5" />
-                <span>{item}</span>
-              </div>
-            ))
-          )}
-        </div>
-      </div>
-
-      {/* SIH Context */}
-      <div className="card p-5">
-        <div className="text-xs uppercase tracking-wider text-slate-500 font-semibold mb-3">Research Context</div>
-        <p className="text-sm text-slate-400 leading-relaxed">
-          PixelSight implements <strong className="text-slate-200">SIH 2026 Problem Statement SIH26142</strong>:{' '}
-          "Deep Learning Based Super Resolution Mapping (SRM) from Medium Resolution Satellite Imageries."
-          The system uses Sentinel-2 compatible 4-band (B02/B03/B04/B08) imagery as input.
-        </p>
-        <div className="mt-3 grid sm:grid-cols-2 gap-3 text-xs text-slate-500">
-          <div>• LDSR-S2: Latent Diffusion SR for Sentinel-2 MSI</div>
-          <div>• SRM: Sub-pixel land-cover mapping at 2.5 m</div>
-          <div>• Uncertainty: Stochastic diffusion variability</div>
-          <div>• Downstream: WorldCover-proxy classification</div>
-        </div>
-      </div>
-    </div>
-  );
-}
+// ─── 6. DownloadsTab ───────────────────────────────────────────────────────
 
 function DownloadsTab({ file, report, outputs, job }) {
   const reportUrl = file(outputs.report || 'report/report.json');
@@ -584,7 +793,7 @@ function DownloadsTab({ file, report, outputs, job }) {
   const mdReportUrl = file(outputs.report_markdown || 'report/report.md');
   const manifestUrl = file(outputs.manifest || 'manifest.json');
   const srTif = file(report.outputs?.super_resolution || 'super_resolution/sr.tif');
-  const classifiedRaster = file(outputs.urban_classification || 'analysis/urban_classes.tif');
+  const classifiedRaster = file(outputs.urban_classification || 'application/urban/segmentation_sr.tif');
   const uncertaintyTif = file(outputs.uncertainty_geotiff || 'uncertainty/uncertainty_map.tif');
   const original = file(outputs.original_preview || 'input/original_preview.png');
 
@@ -612,28 +821,18 @@ function DownloadsTab({ file, report, outputs, job }) {
         <div className="text-xs uppercase tracking-wider text-cyan-400 font-semibold mb-4">Raster Outputs</div>
         <DownloadRow href={srTif} filename="pixelsight-sr.tif" label="Super-Resolved GeoTIFF" desc="LDSR-S2 4× output at ~2.5 m equivalent resolution" ext=".tif" />
         <DownloadRow href={uncertaintyTif} filename="uncertainty-map.tif" label="Uncertainty Map GeoTIFF" desc="Stochastic diffusion std (uncertainty) per pixel" ext=".tif" />
-        <DownloadRow href={classifiedRaster} filename="urban-classes.tif" label="Classification Raster" desc="WorldCover-proxy land cover classes (GeoTIFF)" ext=".tif" />
+        <DownloadRow href={classifiedRaster} filename="segmentation-sr.tif" label="Classification Raster" desc="WorldCover-proxy land cover classes (GeoTIFF)" ext=".tif" />
         <DownloadRow href={original} filename="original-preview.png" label="Original Preview PNG" desc="RGB preview of the uploaded input raster" ext=".png" />
       </div>
 
       <div className="card p-5">
-        <div className="text-xs uppercase tracking-wider text-emerald-400 font-semibold mb-4">Reports</div>
+        <div className="text-xs uppercase tracking-wider text-emerald-400 font-semibold mb-4">Reports & Tables</div>
+        <DownloadRow href={`/api/v1/results/${job.job_id}/classification/statistics.csv`} filename={`classification_statistics_${job.job_id}.csv`} label="Per-Class Statistics CSV" desc="Full tabular metrics per land-cover class" ext=".csv" />
+        <DownloadRow href={`/api/v1/results/${job.job_id}/classification/confusion_matrix.json`} filename={`confusion_matrix_${job.job_id}.json`} label="Confusion Matrix JSON" desc="7x7 class confusion matrix" ext=".json" />
         <DownloadRow href={reportUrl} filename="pixelsight-report.json" label="JSON Report" desc="Machine-readable structured evaluation report" ext=".json" />
         <DownloadRow href={mdReportUrl} filename="pixelsight-report.md" label="Markdown Report" desc="Human-readable GitHub-flavoured Markdown report" ext=".md" />
-        <DownloadRow
-          href={htmlReportUrl}
-          filename="pixelsight-report.html"
-          label="HTML Report"
-          desc="Standalone interactive HTML report (no server required)"
-          ext=".html"
-        />
+        <DownloadRow href={htmlReportUrl} filename="pixelsight-report.html" label="HTML Report" desc="Standalone interactive HTML report" ext=".html" />
         <DownloadRow href={manifestUrl} filename="manifest.json" label="Artifact Manifest" desc="JSON index of all produced artifacts with paths and sizes" ext=".json" />
-      </div>
-
-      <div className="flex gap-3">
-        <a href={htmlReportUrl} target="_blank" rel="noreferrer" className="btn-primary flex-1 justify-center">
-          <ExternalLink className="w-4 h-4" /> Open HTML Report
-        </a>
       </div>
     </div>
   );
@@ -641,59 +840,166 @@ function DownloadsTab({ file, report, outputs, job }) {
 
 // ─── Main ResultsDashboard ────────────────────────────────────────────────
 
-const TABS = [
-  { id: 'overview', label: 'Overview', icon: BookOpen },
-  { id: 'super_resolution', label: 'Super-Resolution', icon: Layers },
-  { id: 'uncertainty', label: 'Uncertainty', icon: Activity },
-  { id: 'segmentation', label: 'Classification', icon: Map },
-  { id: 'evaluation', label: 'Metrics', icon: BarChart3 },
-  { id: 'scientific', label: 'Scientific Status', icon: ShieldAlert },
-  { id: 'downloads', label: 'Downloads', icon: Download },
-];
-
-export default function ResultsDashboard({ job, results, report, onReset }) {
+export default function ResultsDashboard({
+  job,
+  results,
+  report,
+  onReset,
+  onSelectApplication,
+  health,
+  activeApp = 'research',
+}) {
   const [activeTab, setActiveTab] = useState('overview');
-  const outputs = results.outputs || {};
-  const file = path => resultFileUrl(job.job_id, path);
+  const outputs = results?.outputs || {};
+  const file = path => resultFileUrl(job?.job_id, path);
+
+  const [classificationData, setClassificationData] = useState(null);
+  const [classificationLoading, setClassificationLoading] = useState(false);
+  const [classificationError, setClassificationError] = useState(null);
+
+  useEffect(() => {
+    if (!job?.job_id) return;
+    let isMounted = true;
+    setClassificationLoading(true);
+    fetchJobClassification(job.job_id)
+      .then(data => {
+        if (isMounted) {
+          setClassificationData(data);
+          setClassificationLoading(false);
+        }
+      })
+      .catch(err => {
+        if (isMounted) {
+          setClassificationError(err.message);
+          setClassificationLoading(false);
+        }
+      });
+    return () => { isMounted = false; };
+  }, [job?.job_id]);
+
+  const isResearchMode = activeApp === 'research' || activeApp === 'core';
+  const tabs = isResearchMode
+    ? [
+        { id: 'overview', label: 'Overview', icon: LayoutDashboard },
+        { id: 'uncertainty', label: 'Uncertainty', icon: Activity },
+        { id: 'evaluation', label: 'Evaluation', icon: BarChart3 },
+        { id: 'downloads', label: 'Downloads', icon: Download },
+      ]
+    : [
+        { id: 'overview', label: 'Overview', icon: LayoutDashboard },
+        { id: 'classification', label: 'Classification', icon: Layers },
+        { id: 'ground_truth', label: 'Ground Truth', icon: CheckCircle2 },
+        { id: 'vegetation', label: 'Vegetation', icon: Sprout },
+        { id: 'urban', label: 'Urban', icon: Building2 },
+        { id: 'uncertainty', label: 'Uncertainty', icon: Activity },
+        { id: 'evaluation', label: 'Evaluation', icon: BarChart3 },
+        { id: 'downloads', label: 'Downloads', icon: Download },
+      ];
 
   const renderTab = () => {
     switch (activeTab) {
-      case 'overview': return <OverviewTab job={job} report={report} outputs={outputs} file={file} />;
-      case 'super_resolution': return <SuperResolutionTab file={file} outputs={outputs} />;
-      case 'uncertainty': return <UncertaintyTab file={file} report={report} outputs={outputs} />;
-      case 'segmentation': return <SegmentationTab file={file} report={report} outputs={outputs} />;
-      case 'evaluation': return <EvaluationTab report={report} outputs={outputs} />;
-      case 'scientific': return <ScientificStatusTab report={report} />;
-      case 'downloads': return <DownloadsTab file={file} report={report} outputs={outputs} job={job} />;
-      default: return null;
+      case 'overview':
+        return (
+          <OverviewTab
+            job={job}
+            report={report}
+            outputs={outputs}
+            file={file}
+            classification={classificationData}
+            onNavigateTab={setActiveTab}
+            activeApp={activeApp}
+          />
+        );
+      case 'classification':
+        return (
+          <ClassificationReportSheet
+            jobId={job.job_id}
+            classification={classificationData}
+            fileUrl={file}
+            loading={classificationLoading}
+            error={classificationError}
+          />
+        );
+      case 'ground_truth':
+        return (
+          <GroundTruthPage
+            initialJobId={job.job_id}
+            onBack={() => setActiveTab('classification')}
+          />
+        );
+      case 'vegetation':
+        return <VegetationTab file={file} outputs={outputs} report={report} />;
+      case 'urban':
+        return <UrbanTab file={file} outputs={outputs} report={report} />;
+      case 'uncertainty':
+        return <UncertaintyTab file={file} report={report} outputs={outputs} job={job} />;
+      case 'evaluation':
+        return <EvaluationTab report={report} outputs={outputs} />;
+      case 'downloads':
+        return <DownloadsTab file={file} report={report} outputs={outputs} job={job} />;
+      default:
+        return null;
     }
   };
 
   return (
     <main className="min-h-screen" style={{ background: 'radial-gradient(ellipse 80% 30% at 50% 0%, rgba(6,182,212,0.08), transparent 70%), #050a14' }}>
-      {/* Sticky header */}
-      <header className="sticky-header px-6 md:px-12 py-4 flex items-center justify-between">
+      {/* Sticky Top Header */}
+      <header className="sticky-header px-6 md:px-12 py-4 flex flex-wrap items-center justify-between gap-4 border-b border-white/[0.08]">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: 'linear-gradient(135deg,#0891b2,#1d4ed8)' }}>
             <CheckCircle2 className="w-4 h-4 text-white" />
           </div>
           <div>
-            <div className="font-bold text-white">PixelSight</div>
-            <div className="text-[10px] uppercase tracking-widest text-emerald-400">Processing complete</div>
+            <div className="font-bold text-white flex items-center gap-2">
+              PixelSight Results Studio
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-300 border border-cyan-500/30 uppercase font-mono">
+                {activeApp || 'Pipeline'}
+              </span>
+            </div>
+            <div className="text-[10px] uppercase tracking-widest text-emerald-400">
+              Processing complete · Job {job?.job_id}
+            </div>
           </div>
         </div>
-        <div className="flex items-center gap-3">
-          <span className="text-xs text-slate-500 font-mono hidden sm:block">job {job.job_id}</span>
+
+        <div className="flex flex-wrap items-center gap-2">
+          {onSelectApplication && (
+            <div className="flex items-center bg-slate-900/90 rounded-xl p-1 border border-slate-800 text-xs">
+              <button
+                onClick={() => onSelectApplication('crop')}
+                className="px-2.5 py-1.5 rounded-lg text-slate-400 hover:text-white font-medium transition-colors"
+              >
+                Crop
+              </button>
+              <button
+                onClick={() => onSelectApplication('urban')}
+                className="px-2.5 py-1.5 rounded-lg text-slate-400 hover:text-white font-medium transition-colors"
+              >
+                Urban
+              </button>
+              <button
+                onClick={() => onSelectApplication('disaster')}
+                className="px-2.5 py-1.5 rounded-lg text-slate-400 hover:text-white font-medium transition-colors"
+              >
+                Disaster
+              </button>
+            </div>
+          )}
+
           <button className="btn-ghost" onClick={onReset}>
-            <RotateCcw className="w-4 h-4" /> New image
+            <RotateCcw className="w-4 h-4" /> New Image / AOI
           </button>
         </div>
       </header>
 
-      <div className="max-w-5xl mx-auto px-6 py-8">
-        {/* Tab bar */}
-        <div className="flex gap-1 overflow-x-auto pb-1 mb-8 scrollbar-hide">
-          {TABS.map(tab => (
+      <div className="max-w-7xl mx-auto px-6 py-8">
+        {/* Top-Level Results Navigation Bar (Section 1) */}
+        <nav
+          aria-label="Results navigation"
+          className="flex gap-2 overflow-x-auto pb-2 mb-8 border-b border-white/[0.08] scrollbar-hide"
+        >
+          {tabs.map(tab => (
             <TabButton
               key={tab.id}
               id={tab.id}
@@ -703,9 +1009,9 @@ export default function ResultsDashboard({ job, results, report, onReset }) {
               onClick={setActiveTab}
             />
           ))}
-        </div>
+        </nav>
 
-        {/* Tab content */}
+        {/* Tab content area — replaced completely when switching tabs (Section 1) */}
         <div className="pb-16 anim-fade-up">
           {renderTab()}
         </div>

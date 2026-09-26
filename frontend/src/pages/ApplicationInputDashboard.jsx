@@ -28,16 +28,23 @@ import {
   startUrbanProcessing,
   startDisasterProcessing,
   startProcessing,
-  inspectImage
+  inspectImage,
+  discoverReference,
 } from '../api/srmApi.js';
 
 export default function ApplicationInputDashboard({
   application = 'crop',
+  onSelectApplication,
   onBack,
+  health,
   onJobStarted,
 }) {
   const [inputMode, setInputMode] = useState('map'); // 'map' | 'upload'
   const [showTechnicalDetails, setShowTechnicalDetails] = useState(false);
+
+  // Automatic HR Reference Discovery state (Section 15)
+  const [refDiscovery, setRefDiscovery] = useState(null);
+  const [isDiscoveringRef, setIsDiscoveringRef] = useState(false);
 
   // Map & Copernicus State - Natural default 1.28km x 1.28km AOI (128x128 pixels, 1 tile)
   const [selectedAoi, setSelectedAoi] = useState([80.264798, 13.076941, 80.276602, 13.088459]);
@@ -47,6 +54,25 @@ export default function ApplicationInputDashboard({
   const [scenes, setScenes] = useState([]);
   const [isSearching, setIsSearching] = useState(false);
   const [selectedScene, setSelectedScene] = useState(null);
+
+  // Automatic pre-processing HR reference check (Section 15)
+  useEffect(() => {
+    let cancelled = false;
+    if (inputMode === 'map' && selectedAoi) {
+      setIsDiscoveringRef(true);
+      discoverReference(selectedAoi, startDate)
+        .then(res => {
+          if (!cancelled) setRefDiscovery(res);
+        })
+        .catch(() => {
+          if (!cancelled) setRefDiscovery({ available: false, selection_reason: "Reference discovery service offline; no-reference evaluation used." });
+        })
+        .finally(() => {
+          if (!cancelled) setIsDiscoveringRef(false);
+        });
+    }
+    return () => { cancelled = true; };
+  }, [selectedAoi, startDate, inputMode]);
 
   const handleAoiChange = (newAoi) => {
     setSelectedAoi(newAoi);
@@ -222,31 +248,86 @@ export default function ApplicationInputDashboard({
 
   return (
     <div className="min-h-screen pb-20 px-4 md:px-8 max-w-7xl mx-auto text-slate-200">
-      {/* Top Header */}
-      <header className="py-6 flex flex-wrap items-center justify-between gap-4 border-b border-white/[0.06] mb-6">
+      {/* Integrated In-App Header & Application Switcher */}
+      <header className="py-5 flex flex-wrap items-center justify-between gap-4 border-b border-white/[0.08] mb-6">
         <div className="flex items-center gap-3.5">
           <button
             onClick={onBack}
-            className="p-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white border border-slate-800 transition-colors"
+            className="flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-800 transition-colors text-xs font-semibold"
             title="Return to Application Selection"
           >
-            <ArrowLeft className="w-5 h-5" />
+            <ArrowLeft className="w-4 h-4" />
+            <span className="hidden sm:inline">Applications</span>
           </button>
+
           <div>
             <div className="flex items-center gap-2.5">
               <div className={`p-2 rounded-xl bg-${currentApp.color}-500/10 text-${currentApp.color}-400 border ${currentApp.borderColor}`}>
                 <Icon className="w-5 h-5" />
               </div>
               <h1 className="text-xl md:text-2xl font-black text-white tracking-tight">
-                {currentApp.name} Dashboard
+                {currentApp.name}
               </h1>
               <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold tracking-wider uppercase bg-${currentApp.color}-500/10 text-${currentApp.color}-300 border ${currentApp.borderColor}`}>
                 {currentApp.badge}
               </span>
             </div>
-            <p className="text-xs text-slate-400 mt-1">{currentApp.subtitle}</p>
+            <p className="text-xs text-slate-400 mt-0.5">{currentApp.subtitle}</p>
           </div>
         </div>
+
+        {/* Integrated In-Application Switcher */}
+        <div className="flex flex-wrap items-center gap-2">
+          {onSelectApplication && (
+            <div className="flex items-center bg-slate-900/90 rounded-xl p-1 border border-slate-800 text-xs">
+              <button
+                onClick={() => onSelectApplication('crop')}
+                className={`px-2.5 py-1.5 rounded-lg font-medium transition-all ${
+                  application === 'crop' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Crop
+              </button>
+              <button
+                onClick={() => onSelectApplication('urban')}
+                className={`px-2.5 py-1.5 rounded-lg font-medium transition-all ${
+                  application === 'urban' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Urban
+              </button>
+              <button
+                onClick={() => onSelectApplication('disaster')}
+                className={`px-2.5 py-1.5 rounded-lg font-medium transition-all ${
+                  application === 'disaster' ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30' : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Disaster
+              </button>
+              <button
+                onClick={() => onSelectApplication('research')}
+                className={`px-2.5 py-1.5 rounded-lg font-medium transition-all ${
+                  application === 'research' ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30' : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Research
+              </button>
+            </div>
+          )}
+
+          {/* Connection dot */}
+          <div className="hidden lg:flex items-center gap-2 px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800 text-[11px]">
+            <span
+              className={`w-2 h-2 rounded-full ${
+                health?.status === 'ok' ? 'bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)]' : 'bg-amber-400 animate-pulse'
+              }`}
+            />
+            <span className="text-slate-400 font-mono text-[10px]">
+              {health?.status === 'ok' ? 'Engine Ready' : 'Connecting'}
+            </span>
+          </div>
+        </div>
+      </header>
 
         {/* Dual Input Mode Tabs */}
         <div className="flex items-center bg-slate-900/90 rounded-xl p-1 border border-slate-800 shadow-inner">
@@ -273,7 +354,6 @@ export default function ApplicationInputDashboard({
             Option B — Upload Data
           </button>
         </div>
-      </header>
 
       {/* Error Alert */}
       {error && (
@@ -344,6 +424,22 @@ export default function ApplicationInputDashboard({
                   </span>
                 )}
                 {' · '}Bands: <strong className="text-slate-200">B02, B03, B04, B08 (10m)</strong>
+              </div>
+              <div className="flex items-center gap-2 pt-0.5">
+                <span className="text-[11px] text-slate-500 font-semibold uppercase tracking-wider">Evaluation Mode:</span>
+                {isDiscoveringRef ? (
+                  <span className="text-[11px] text-cyan-400 font-mono animate-pulse">Searching HR reference catalogs...</span>
+                ) : refDiscovery?.available ? (
+                  <span className="text-[11px] font-semibold text-emerald-400 flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                    External HR Reference Found ({refDiscovery.source} · {refDiscovery.spatial_overlap}% overlap)
+                  </span>
+                ) : (
+                  <span className="text-[11px] text-amber-400/90 flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                    No External HR Reference — No-Reference Evaluation Mode
+                  </span>
+                )}
               </div>
             </div>
 

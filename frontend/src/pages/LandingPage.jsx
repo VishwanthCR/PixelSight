@@ -15,7 +15,6 @@ import {
   Map,
   BarChart3,
 } from 'lucide-react';
-import SatelliteGlobe3D from '../components/SatelliteGlobe3D.jsx';
 
 const APPLICATIONS = [
   {
@@ -188,12 +187,7 @@ export default function LandingPage({
           })}
         </div>
 
-        {/* 3D Earth Globe & Orbit Visualizer */}
-        <div className="rounded-3xl overflow-hidden shadow-2xl border border-cyan-500/20">
-          <SatelliteGlobe3D height={320} showTelemetry={true} />
-        </div>
-
-        {/* Secondary / Advanced Section: Research + Batch + Classification + Evaluation */}
+        {/* Secondary Workflow Tools: Research Studio + Batch Processing */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {/* Research Engine */}
           <div className="p-6 rounded-3xl bg-slate-900/60 border border-slate-800 hover:border-slate-700 transition-colors flex flex-wrap items-center justify-between gap-6">
@@ -209,7 +203,7 @@ export default function LandingPage({
                   </span>
                 </div>
                 <p className="text-xs text-slate-400 leading-relaxed">
-                  Full research studio for benchmark validation, FRC, MTF, and pixel-level stochastic variance mapping.
+                  Deep research studio with input-specific quantitative evaluation vs normal zoomed AOI reference, PSNR, SSIM, SAM, and pixel-level uncertainty.
                 </p>
               </div>
             </div>
@@ -236,7 +230,7 @@ export default function LandingPage({
                   </span>
                 </div>
                 <p className="text-xs text-slate-400 leading-relaxed">
-                  Process multiple Sentinel-2 GeoTIFF files simultaneously with live per-job progress tracking and adaptive compute scheduling.
+                  Process multiple Sentinel-2 GeoTIFF scenes simultaneously with live per-job progress tracking, queue management, and cancel/retry.
                 </p>
               </div>
             </div>
@@ -245,60 +239,6 @@ export default function LandingPage({
               className="px-5 py-2.5 rounded-xl bg-violet-800/40 hover:bg-violet-700/50 text-violet-200 hover:text-white border border-violet-700/50 font-bold text-xs uppercase tracking-wider transition-all flex items-center gap-2"
             >
               <span>Open Batch Dashboard</span>
-              <ArrowRight className="w-4 h-4" />
-            </button>
-          </div>
-
-          {/* Land Cover Classification */}
-          <div className="p-6 rounded-3xl bg-slate-900/60 border border-slate-800 hover:border-cyan-500/30 transition-colors flex flex-wrap items-center justify-between gap-6">
-            <div className="flex items-center gap-4">
-              <div className="p-3 rounded-2xl bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 flex-shrink-0">
-                <Map className="w-6 h-6" />
-              </div>
-              <div>
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="text-sm font-bold text-white">Land Cover Classification</span>
-                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-300 border border-cyan-500/30 uppercase font-mono">
-                    ESA WorldCover UNet
-                  </span>
-                </div>
-                <p className="text-xs text-slate-400 leading-relaxed">
-                  Pixel-level 7-class deep segmentation for trees, shrubland, grassland, cropland, built-up, bare soil, and water.
-                </p>
-              </div>
-            </div>
-            <button
-              onClick={() => onSelectApplication('classification')}
-              className="px-5 py-2.5 rounded-xl bg-cyan-900/30 hover:bg-cyan-800/40 text-cyan-300 hover:text-white border border-cyan-700/40 font-bold text-xs uppercase tracking-wider transition-all flex items-center gap-2"
-            >
-              <span>Open Classification</span>
-              <ArrowRight className="w-4 h-4" />
-            </button>
-          </div>
-
-          {/* Evaluation & Benchmarks */}
-          <div className="p-6 rounded-3xl bg-slate-900/60 border border-slate-800 hover:border-emerald-500/30 transition-colors flex flex-wrap items-center justify-between gap-6">
-            <div className="flex items-center gap-4">
-              <div className="p-3 rounded-2xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex-shrink-0">
-                <BarChart3 className="w-6 h-6" />
-              </div>
-              <div>
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="text-sm font-bold text-white">Scientific Benchmarks &amp; Evaluation</span>
-                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-300 border border-emerald-500/30 uppercase font-mono">
-                    Empirical Verification
-                  </span>
-                </div>
-                <p className="text-xs text-slate-400 leading-relaxed">
-                  View image quality, spectral consistency, downstream mIoU, and diffusion uncertainty across all experiments.
-                </p>
-              </div>
-            </div>
-            <button
-              onClick={() => onSelectApplication('evaluation')}
-              className="px-5 py-2.5 rounded-xl bg-emerald-900/30 hover:bg-emerald-800/40 text-emerald-300 hover:text-white border border-emerald-700/40 font-bold text-xs uppercase tracking-wider transition-all flex items-center gap-2"
-            >
-              <span>View Benchmarks</span>
               <ArrowRight className="w-4 h-4" />
             </button>
           </div>

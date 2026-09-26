@@ -1,0 +1,69 @@
+# PixelSight HR Reference Dataset Registry
+# ==========================================
+# Configures external High-Resolution (HR) reference datasets for automatic discovery.
+# DO NOT hard-code geographic footprints into Python code.
+# The system reads geographic index files and evaluates candidates dynamically.
+
+settings:
+  cache_dir: "results/cache/reference"
+  min_spatial_overlap_pct: 50.0
+  max_acceptable_resolution_m: 5.0
+  target_scale_factor: 4
+  temporal_thresholds_days:
+    exact: 0
+    close: 7
+    acceptable_with_caveat: 30
+  weights:
+    spatial_overlap: 0.45
+    temporal_proximity: 0.25
+    resolution_match: 0.15
+    spectral_match: 0.15
+
+sources:
+  - name: "india_regional_reference"
+    type: "external_hr_reference"
+    description: "India Regional Calibrated Reference Product (~2.5m equivalent)"
+    resolution_m: 2.5
+    scale_factor: 4
+    enabled: true
+    crs: "EPSG:4326"
+    bands: ["B02", "B03", "B04", "B08"]
+    geographic_index: "configs/evaluation/indexes/india_reference_index.json"
+    requires_alignment: true
+    provenance: "Calibrated 2.5m airborne/satellite reference imagery"
+
+  - name: "sen2neon"
+    type: "external_hr_reference"
+    description: "SEN2NEON Ecological Airborne/Satellite Reference Product"
+    resolution_m: 2.5
+    scale_factor: 4
+    enabled: true
+    crs: "EPSG:4326"
+    bands: ["B02", "B03", "B04", "B08"]
+    geographic_index: "configs/evaluation/indexes/sen2neon_index.json"
+    requires_alignment: true
+    provenance: "NEON Airborne Observation Platform calibrated 2.5m surface reflectance"
+
+  - name: "sen2naip"
+    type: "external_hr_reference"
+    description: "SEN2NAIP USDA National Agriculture Imagery Program Reference"
+    resolution_m: 2.5
+    scale_factor: 4
+    enabled: true
+    crs: "EPSG:4326"
+    bands: ["B02", "B03", "B04", "B08"]
+    geographic_index: "configs/evaluation/indexes/sen2naip_index.json"
+    requires_alignment: true
+    provenance: "USDA NAIP 4-band orthoimagery resampled to 2.5m Sentinel-2 grid"
+
+  - name: "opensr_test"
+    type: "benchmark"
+    description: "OpenSR Standard Super-Resolution Reference Suite"
+    resolution_m: 2.5
+    scale_factor: 4
+    enabled: true
+    crs: "EPSG:4326"
+    bands: ["B02", "B03", "B04", "B08"]
+    geographic_index: "configs/evaluation/indexes/opensr_test_index.json"
+    requires_alignment: true
+    provenance: "OpenSR optical reference benchmark"

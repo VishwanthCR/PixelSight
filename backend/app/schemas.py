@@ -45,6 +45,11 @@ class JobResponse(BaseModel):
     error: str | None = None
     outputs: dict[str, Any] = Field(default_factory=dict)
     application: str = "research"
+    use_case: str = "research"
+    core_engine: dict[str, Any] = Field(default_factory=dict)
+    evaluation: dict[str, Any] = Field(default_factory=dict)
+    artifacts: dict[str, Any] = Field(default_factory=dict)
+    report: dict[str, Any] | None = None
 
 
 class ResultResponse(BaseModel):
@@ -52,6 +57,11 @@ class ResultResponse(BaseModel):
     status: str
     outputs: dict[str, Any]
     application: str = "research"
+    use_case: str = "research"
+    core_engine: dict[str, Any] = Field(default_factory=dict)
+    evaluation: dict[str, Any] = Field(default_factory=dict)
+    artifacts: dict[str, Any] = Field(default_factory=dict)
+    report: dict[str, Any] | None = None
 
 
 class ApplicationDefinition(BaseModel):
@@ -133,4 +143,56 @@ class CopernicusApplicationJobRequest(BaseModel):
     pre_date: str | None = None
     post_scene_id: str | None = None
     post_date: str | None = None
+
+
+class ReferenceDiscoveryRequest(BaseModel):
+    aoi: Any | None = None
+    geometry: dict[str, Any] | None = None
+    date: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    source_preference: str | None = None
+
+
+class ReferenceDiscoveryResponse(BaseModel):
+    available: bool
+    source: str | None = None
+    reference_id: str | None = None
+    reference_path: str | None = None
+    resolution_m: float | None = None
+    spatial_overlap: float = 0.0
+    temporal_difference_days: int | None = None
+    temporal_match_status: str = "UNKNOWN"
+    spectral_compatibility: str = "INCOMPATIBLE"
+    match_status: str = "UNAVAILABLE"
+    selection_reason: str
+    limitations: list[str] = Field(default_factory=list)
+    eligible_metrics: list[str] = Field(default_factory=list)
+    ineligible_metrics: dict[str, str] = Field(default_factory=dict)
+    band_mapping: dict[str, int | None] = Field(default_factory=dict)
+    provenance: dict[str, Any] = Field(default_factory=dict)
+    candidates_searched: int = 0
+    candidate_summary: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class GroundTruthCreateRequest(BaseModel):
+    job_id: str
+    aoi: list[float] | None = None
+    annotator: str | None = "Expert Annotator"
+    notes: str | None = None
+
+
+class GroundTruthAnnotationRequest(BaseModel):
+    geojson: dict[str, Any]
+    annotator: str | None = "Expert Annotator"
+    notes: str | None = None
+
+
+class GroundTruthReviewRequest(BaseModel):
+    status: str  # "draft" | "review" | "validated"
+    reviewer: str | None = None
+
+
+class GroundTruthRasterizeRequest(BaseModel):
+    evaluation_grid: str = "2.5m"
+    auto_validate: bool = False
 

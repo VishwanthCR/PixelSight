@@ -4,13 +4,13 @@ from pathlib import Path
 import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Annotated
+from typing import Annotated, Any
 
 import torch
 import numpy as np
 import rasterio
 from fastapi import FastAPI, File, HTTPException, UploadFile, Query
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from PIL import Image
 from rasterio.transform import from_origin
 from skimage.metrics import peak_signal_noise_ratio, structural_similarity
@@ -35,7 +35,13 @@ from backend.app.schemas import (
     InspectionResponse,
     JobResponse,
     PreprocessResponse,
+    ReferenceDiscoveryRequest,
+    ReferenceDiscoveryResponse,
     ResultResponse,
+    GroundTruthCreateRequest,
+    GroundTruthAnnotationRequest,
+    GroundTruthReviewRequest,
+    GroundTruthRasterizeRequest,
 )
 from backend.app.services.aoi import AOIValidationError, validate_and_estimate_aoi
 from backend.app.services.app_registry import registry
@@ -50,6 +56,12 @@ from backend.app.services.disaster import align_temporal_pair, run_disaster_anal
 from backend.app.services.geocoding import geocode_location
 from backend.app.services.jobs import JobStore
 from backend.app.services.raster import inspect_raster, preprocess_raster
+from backend.app.services.reference import (
+    ReferenceDiscoveryService,
+    ReferenceDiscoveryResult,
+    ReferenceAligner,
+    ReferenceEvaluator,
+)
 from backend.app.services.reporting import write_manifest, write_report
 from backend.app.services.uncertainty import generate_uncertainty_map
 from backend.app.services.urban import compare_urban_analysis, run_urban_analysis, run_urban_pipeline
@@ -59,6 +71,9 @@ from backend.app.services.visualization import save_rgb_preview
 app = FastAPI(title="PixelSight API", version="1.0.0")
 jobs = JobStore(RESULTS_ROOT)
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+reference_discovery_service = ReferenceDiscoveryService()
+reference_aligner = ReferenceAligner()
+reference_evaluator = ReferenceEvaluator()
 
 
 def _safe_suffix(filename: str | None) -> str:
@@ -93,7 +108,12 @@ async def _save_upload(upload: UploadFile, destination: Path) -> None:
 
 def _job_response(job: dict) -> JobResponse:
     fields = {key: job[key] for key in ("job_id", "status", "stage", "progress", "error", "outputs") if key in job}
-    fields["application"] = job.get("application", "research")
+    app_type = job.get("application", "research")
+    fields["application"] = app_type
+    fields["use_case"] = app_type
+    fields["core_engine"] = job.get("core_engine", {})
+    fields["evaluation"] = job.get("evaluation", {})
+    fields["artifacts"] = job.get("artifacts", {})
     return JobResponse(**fields)
 
 
@@ -132,40 +152,139 @@ def _resample_reference_to_output(reference_path: Path, output_shape: tuple[int,
     return np.stack(bands, axis=-1)
 
 
-def _evaluate_reference(sr_path: Path, reference_path: Path) -> dict:
-    try:
-        with rasterio.open(sr_path) as sr_src:
-            sr = np.moveaxis(sr_src.read(), 0, -1).astype(np.float32)
-        if np.nanmax(sr) > 1.5:
-            sr = sr / 10000.0
-        sr = np.clip(sr, 0.0, 1.0)
-        ref = _resample_reference_to_output(reference_path, sr.shape[:2])
-        if not np.isfinite(sr).all() or not np.isfinite(ref).all():
-            return {
-                "status": "reference_unavailable",
-                "psnr": None,
-                "ssim": None,
-                "sam": None,
-                "reason": "Input image contains non-finite values after preprocessing.",
-            }
-        psnr = float(peak_signal_noise_ratio(ref, sr, data_range=1.0))
-        ssim = float(structural_similarity(ref, sr, channel_axis=-1, data_range=1.0))
-        sam = _calculate_sam(sr, ref)
-        return {
-            "status": "reference_available",
-            "psnr": psnr,
-            "ssim": ssim,
-            "sam": sam,
-            "reason": "Computed by comparing the original uploaded input against the generated 4x output after resampling the input to the SR grid.",
-        }
-    except Exception as exc:  # pragma: no cover - defensive branch
-        return {
-            "status": "reference_unavailable",
-            "psnr": None,
-            "ssim": None,
-            "sam": None,
-            "reason": f"Input-to-output evaluation failed: {exc}",
-        }
+def _evaluate_reference(
+    sr_path: Path,
+    reference_path: Path | None = None,
+    *,
+    input_path: Path | None = None,
+    job_dir: Path | None = None,
+    aoi: list[float] | None = None,
+    date: str | None = None,
+    output_files: dict[str, str] | None = None,
+    uncertainty_stats: dict[str, Any] | None = None,
+    source_preference: str | None = None,
+) -> dict:
+    """Automatic reference discovery, alignment, and evaluation subsystem.
+
+    If a scientifically compatible external HR reference exists for this AOI/image,
+    retrieves, caches, aligns, and evaluates SR against it.
+    If no compatible reference exists, gracefully falls back to no-reference evaluation
+    without fabricating ground truth or fake PSNR/SSIM/SAM.
+    """
+    output_files = output_files if output_files is not None else {}
+    if sr_path:
+        sr_path = Path(sr_path)
+    target_input = Path(input_path or reference_path) if (input_path or reference_path) else None
+    if job_dir is None and sr_path:
+        job_dir = sr_path.parent.parent
+    elif job_dir:
+        job_dir = Path(job_dir)
+
+    # Try to resolve date and aoi from job_dir if not explicitly passed
+    if not date and job_dir:
+        for m_name in ("copernicus_request.json", "source_metadata.json"):
+            m_path = job_dir / "input" / m_name
+            if m_path.exists():
+                try:
+                    with open(m_path, "r", encoding="utf-8") as f:
+                        j_meta = json.load(f)
+                    date = j_meta.get("acquisition_date") or j_meta.get("date") or j_meta.get("time_range", {}).get("from")
+                    if not aoi and "aoi_bbox" in j_meta:
+                        aoi = j_meta["aoi_bbox"]
+                    if date:
+                        break
+                except Exception:
+                    pass
+
+    # 1. Automatic reference discovery
+    discovery: ReferenceDiscoveryResult
+    if target_input and target_input.exists() and target_input.suffix.lower() in (".tif", ".tiff"):
+        discovery = reference_discovery_service.discover_for_geotiff(
+            target_input,
+            acquisition_date=date,
+            aoi=aoi,
+            source_preference=source_preference,
+            job_dir=job_dir,
+        )
+    elif aoi:
+        discovery = reference_discovery_service.discover(
+            aoi=aoi, acquisition_date=date, source_preference=source_preference
+        )
+    else:
+        discovery = ReferenceDiscoveryResult(
+            available=False,
+            match_status="NO_SPATIAL_METADATA",
+            selection_reason="No compatible geospatial coordinates or GeoTIFF provided.",
+        )
+
+    # 2. Reference found: Align and evaluate against genuine external HR reference
+    if discovery.available and discovery.reference_path and Path(discovery.reference_path).exists():
+        try:
+            ref_dir = job_dir / "reference"
+            aligned_path, align_report = reference_aligner.align_reference(
+                reference_path=discovery.reference_path,
+                target_template_path=target_input or sr_path,
+                output_dir=ref_dir,
+                band_mapping=discovery.band_mapping,
+            )
+            aligned_preview = ref_dir / "aligned_reference_preview.png"
+            save_rgb_preview(aligned_path, aligned_preview)
+
+            output_files["hr_reference"] = "reference/aligned_reference.tif"
+            output_files["hr_reference_preview"] = "reference/aligned_reference_preview.png"
+            output_files["reference_alignment_report"] = "reference/reference_alignment_report.json"
+
+            evaluation = reference_evaluator.evaluate_reference_based(
+                sr_path=sr_path,
+                aligned_reference_path=aligned_path,
+                eligible_metrics=discovery.eligible_metrics,
+                ineligible_metrics=discovery.ineligible_metrics,
+                provenance=discovery.provenance,
+                native_path=target_input,
+                evaluation_grid="2.5m HR reference grid",
+                alignment_report=align_report.to_dict(),
+                input_datetime=date,
+                reference_datetime=discovery.provenance.get("reference_datetime"),
+                temporal_difference_days=discovery.temporal_difference_days,
+                spatial_overlap_percentage=discovery.spatial_overlap,
+                spectral_compatibility=discovery.spectral_compatibility,
+                reference_meta={
+                    "id": discovery.reference_id,
+                    "resolution_m": discovery.resolution_m,
+                    "provider": discovery.provenance.get("provider"),
+                },
+            )
+            evaluation["discovery"] = discovery.to_dict()
+            evaluation["alignment"] = align_report.to_dict()
+            evaluation["reference_available"] = True
+            evaluation["status"] = "reference_available"
+            evaluation["reference_type"] = f"External HR Reference ({discovery.source})"
+            # Flatten metrics for UI / consumer convenience
+            for m in ("psnr", "ssim", "sam", "mae", "rmse"):
+                if m in evaluation and isinstance(evaluation[m], dict):
+                    evaluation[f"{m}_detail"] = evaluation[m]
+                    evaluation[m] = evaluation[m].get("value")
+            return evaluation
+        except Exception:
+            pass
+
+    # 3. No-Reference Fallback: Strictly adhere to scientific rules
+    # DO NOT fabricate HR ground truth and DO NOT report fake PSNR/SSIM/SAM
+    evaluation = reference_evaluator.build_no_reference_evaluation(
+        reason=discovery.selection_reason,
+        native_path=target_input,
+        sr_path=sr_path,
+        uncertainty_stats=uncertainty_stats,
+    )
+    evaluation["discovery"] = discovery.to_dict()
+    evaluation["reference_available"] = False
+    evaluation["status"] = "reference_unavailable"
+    evaluation["reference_type"] = "No HR Reference (No-Reference Diagnostics Mode)"
+    for m in ("psnr", "ssim", "sam", "mae", "rmse"):
+        if m in evaluation and isinstance(evaluation[m], dict):
+            evaluation[f"{m}_detail"] = evaluation[m]
+            evaluation[m] = evaluation[m].get("value")
+    return evaluation
 
 
 # ===========================================================================
@@ -276,8 +395,19 @@ async def process(upload: Annotated[UploadFile, File(...)]) -> JobResponse:
         output_files["uncertainty_map"] = "uncertainty/uncertainty_map.png"
         output_files["uncertainty_geotiff"] = "uncertainty/uncertainty_map.tif"
 
-        evaluation = _evaluate_reference(sr_path, normalized_path)
-        output_files["input_reference"] = "preprocessing/normalized.tif"
+        hr_ref_path = job_dir / "preprocessing" / "hr_reference.tif"
+        hr_ref_preview = job_dir / "preprocessing" / "hr_reference_preview.png"
+        PixelSightEngine.create_hr_reference(normalized_path, hr_ref_path, preview_path=hr_ref_preview)
+        output_files["hr_reference"] = "preprocessing/hr_reference.tif"
+        output_files["hr_reference_preview"] = "preprocessing/hr_reference_preview.png"
+
+        evaluation = _evaluate_reference(
+            sr_path=sr_path,
+            input_path=normalized_path,
+            job_dir=job_dir,
+            output_files=output_files,
+            uncertainty_stats=uncertainty,
+        )
 
         report = write_report(
             report_path,
@@ -305,6 +435,8 @@ async def process(upload: Annotated[UploadFile, File(...)]) -> JobResponse:
             outputs={
                 "super_resolution": True,
                 "original_preview": "input/original_preview.png",
+                "hr_reference_preview": "preprocessing/hr_reference_preview.png",
+                "hr_reference": "preprocessing/hr_reference.tif",
                 "super_resolution_preview": "super_resolution/sr_preview.png",
                 "report": "report/report.json",
                 "uncertainty": uncertainty,
@@ -314,8 +446,9 @@ async def process(upload: Annotated[UploadFile, File(...)]) -> JobResponse:
                 "urban_analysis": urban_analysis,
                 "urban_classification": output_files["urban_classification"],
                 "urban_planning_map": output_files["urban_planning_map"],
-                "input_urban_classification": "analysis/input_urban_classes.tif",
-                "evaluation": reference_available,
+                "evaluation": True,
+                "reference_available": reference_available,
+                "evaluation_metrics": evaluation,
                 "runtime_seconds": report["runtime"]["seconds"],
                 "limitations": report["scientific_limitations"],
                 "input_reference": output_files.get("input_reference"),
@@ -375,7 +508,19 @@ async def process_crop(upload: Annotated[UploadFile, File(...)]) -> JobResponse:
         output_files["uncertainty_map"] = "uncertainty/uncertainty_map.png"
         output_files["uncertainty_geotiff"] = "uncertainty/uncertainty_map.tif"
 
-        evaluation = _evaluate_reference(sr_path, normalized_path)
+        hr_ref_path = job_dir / "preprocessing" / "hr_reference.tif"
+        hr_ref_preview = job_dir / "preprocessing" / "hr_reference_preview.png"
+        PixelSightEngine.create_hr_reference(normalized_path, hr_ref_path, preview_path=hr_ref_preview)
+        output_files["hr_reference"] = "preprocessing/hr_reference.tif"
+        output_files["hr_reference_preview"] = "preprocessing/hr_reference_preview.png"
+
+        evaluation = _evaluate_reference(
+            sr_path=sr_path,
+            input_path=normalized_path,
+            job_dir=job_dir,
+            output_files=output_files,
+            uncertainty_stats=uncertainty,
+        )
         report = write_report(
             report_path,
             job_id=job_id,
@@ -402,9 +547,12 @@ async def process_crop(upload: Annotated[UploadFile, File(...)]) -> JobResponse:
                 "application": "crop",
                 "super_resolution": True,
                 "original_preview": "input/original_preview.png",
+                "hr_reference_preview": "preprocessing/hr_reference_preview.png",
+                "hr_reference": "preprocessing/hr_reference.tif",
                 "super_resolution_preview": "super_resolution/sr_preview.png",
                 "crop": crop_results,
                 "uncertainty": uncertainty,
+                "evaluation_metrics": evaluation,
                 "uncertainty_map": "uncertainty/uncertainty_map.png",
                 "uncertainty_geotiff": "uncertainty/uncertainty_map.tif",
                 "manifest": "manifest.json",
@@ -472,7 +620,19 @@ async def process_urban(upload: Annotated[UploadFile, File(...)]) -> JobResponse
         output_files["uncertainty_map"] = "uncertainty/uncertainty_map.png"
         output_files["uncertainty_geotiff"] = "uncertainty/uncertainty_map.tif"
 
-        evaluation = _evaluate_reference(sr_path, normalized_path)
+        hr_ref_path = job_dir / "preprocessing" / "hr_reference.tif"
+        hr_ref_preview = job_dir / "preprocessing" / "hr_reference_preview.png"
+        PixelSightEngine.create_hr_reference(normalized_path, hr_ref_path, preview_path=hr_ref_preview)
+        output_files["hr_reference"] = "preprocessing/hr_reference.tif"
+        output_files["hr_reference_preview"] = "preprocessing/hr_reference_preview.png"
+
+        evaluation = _evaluate_reference(
+            sr_path=sr_path,
+            input_path=normalized_path,
+            job_dir=job_dir,
+            output_files=output_files,
+            uncertainty_stats=uncertainty,
+        )
         report = write_report(
             report_path,
             job_id=job_id,
@@ -499,9 +659,12 @@ async def process_urban(upload: Annotated[UploadFile, File(...)]) -> JobResponse
                 "application": "urban",
                 "super_resolution": True,
                 "original_preview": "input/original_preview.png",
+                "hr_reference_preview": "preprocessing/hr_reference_preview.png",
+                "hr_reference": "preprocessing/hr_reference.tif",
                 "super_resolution_preview": "super_resolution/sr_preview.png",
                 "urban": urban_results,
                 "uncertainty": uncertainty,
+                "evaluation_metrics": evaluation,
                 "uncertainty_map": "uncertainty/uncertainty_map.png",
                 "uncertainty_geotiff": "uncertainty/uncertainty_map.tif",
                 "manifest": "manifest.json",
@@ -613,8 +776,17 @@ async def process_disaster(
             status="completed",
             stage="completed",
             progress=100.0,
+            use_case="disaster",
+            core_engine={
+                "model": "LDSR-S2",
+                "scale": 4,
+                "sampling_steps": 100,
+                "device": device,
+            },
+            evaluation=disaster_results.get("evaluation", {}),
             outputs={
                 "application": "disaster",
+                "use_case": "disaster",
                 "super_resolution": True,
                 "disaster": disaster_results,
                 "alignment": alignment_info,
@@ -680,6 +852,28 @@ def estimate_copernicus_aoi(req: CopernicusEstimateRequest) -> CopernicusEstimat
         return CopernicusEstimateResponse(**info)
     except AOIValidationError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/evaluation/reference/discover", response_model=ReferenceDiscoveryResponse)
+def discover_reference_endpoint(req: ReferenceDiscoveryRequest) -> ReferenceDiscoveryResponse:
+    """Discovers external HR reference products for a given AOI, geometry, or GeoTIFF metadata."""
+    aoi = req.aoi or req.geometry
+    if aoi is None and not req.metadata:
+        raise HTTPException(
+            status_code=422,
+            detail="AOI bounding box, GeoJSON geometry, or image metadata required for reference discovery."
+        )
+
+    date = req.date
+    if not date and req.metadata:
+        date = req.metadata.get("datetime") or req.metadata.get("date")
+
+    result = reference_discovery_service.discover(
+        aoi=aoi,
+        acquisition_date=date,
+        source_preference=req.source_preference,
+    )
+    return ReferenceDiscoveryResponse(**result.to_dict())
 
 
 @app.post("/api/v1/copernicus/search", response_model=CopernicusSearchResponse)
@@ -885,8 +1079,17 @@ def process_from_copernicus(application: str, req: CopernicusApplicationJobReque
                     status="completed",
                     stage="completed",
                     progress=100.0,
+                    use_case="disaster",
+                    core_engine={
+                        "model": "LDSR-S2",
+                        "scale": 4,
+                        "sampling_steps": 100,
+                        "device": device,
+                    },
+                    evaluation=disaster_results.get("evaluation", {}),
                     outputs={
                         "application": "disaster",
+                        "use_case": "disaster",
                         "source": "Copernicus Data Space Ecosystem",
                         "super_resolution": True,
                         "disaster": disaster_results,
@@ -978,7 +1181,21 @@ def process_from_copernicus(application: str, req: CopernicusApplicationJobReque
             output_files["uncertainty_map"] = "uncertainty/uncertainty_map.png"
             output_files["uncertainty_geotiff"] = "uncertainty/uncertainty_map.tif"
 
-            evaluation = _evaluate_reference(sr_path, normalized_path)
+            hr_ref_path = job_dir / "preprocessing" / "hr_reference.tif"
+            hr_ref_preview = job_dir / "preprocessing" / "hr_reference_preview.png"
+            PixelSightEngine.create_hr_reference(normalized_path, hr_ref_path, preview_path=hr_ref_preview)
+            output_files["hr_reference"] = "preprocessing/hr_reference.tif"
+            output_files["hr_reference_preview"] = "preprocessing/hr_reference_preview.png"
+
+            evaluation = _evaluate_reference(
+                sr_path=sr_path,
+                input_path=normalized_path,
+                aoi=aoi_info["bbox"],
+                date=req.date,
+                job_dir=job_dir,
+                output_files=output_files,
+                uncertainty_stats=uncertainty,
+            )
             report = write_report(
                 report_path,
                 job_id=job_id,
@@ -1008,10 +1225,13 @@ def process_from_copernicus(application: str, req: CopernicusApplicationJobReque
                 "source": "Copernicus Data Space Ecosystem",
                 "super_resolution": True,
                 "original_preview": "input/original_preview.png",
+                "hr_reference_preview": "preprocessing/hr_reference_preview.png",
+                "hr_reference": "preprocessing/hr_reference.tif",
                 "super_resolution_preview": "super_resolution/sr_preview.png",
                 "uncertainty": uncertainty,
                 "uncertainty_map": "uncertainty/uncertainty_map.png",
                 "uncertainty_geotiff": "uncertainty/uncertainty_map.tif",
+                "evaluation_metrics": evaluation,
                 "manifest": "manifest.json",
                 "report": "report/report.json",
                 "report_html": "report/report.html",
@@ -1111,15 +1331,25 @@ def get_results(job_id: str) -> ResultResponse:
     job = jobs.get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found.")
-    return ResultResponse(job_id=job_id, status=job["status"], outputs=job["outputs"], application=job.get("application", "research"))
+    app_type = job.get("application", "research")
+    return ResultResponse(
+        job_id=job_id,
+        status=job["status"],
+        outputs=job["outputs"],
+        application=app_type,
+        use_case=app_type,
+        core_engine=job.get("core_engine", {}),
+        evaluation=job.get("evaluation", {}),
+        artifacts=job.get("artifacts", {}),
+    )
 
 
 @app.get("/api/v1/results/{job_id}/files/{relative_path:path}")
 def download_result(job_id: str, relative_path: str) -> FileResponse:
     job = jobs.get(job_id)
-    if job is None:
-        raise HTTPException(status_code=404, detail="Job not found.")
     job_dir = RESULTS_ROOT / job_id
+    if job is None and not job_dir.exists():
+        raise HTTPException(status_code=404, detail="Job not found.")
     requested = (job_dir / relative_path).resolve()
     if job_dir.resolve() not in requested.parents or not requested.is_file():
         raise HTTPException(status_code=404, detail="Result file not found.")
@@ -1272,8 +1502,19 @@ async def batch_process(
                     )
                     app_outputs = {"urban_analysis": urban_analysis}
 
-                jobs.update(jid, stage="reporting", progress=95.0)
-                evaluation = _evaluate_reference(sr_path, normalized_path)
+                hr_ref_path = jdir / "preprocessing" / "hr_reference.tif"
+                hr_ref_preview = jdir / "preprocessing" / "hr_reference_preview.png"
+                PixelSightEngine.create_hr_reference(normalized_path, hr_ref_path, preview_path=hr_ref_preview)
+                output_files["hr_reference"] = "preprocessing/hr_reference.tif"
+                output_files["hr_reference_preview"] = "preprocessing/hr_reference_preview.png"
+
+                evaluation = _evaluate_reference(
+                    sr_path=sr_path,
+                    input_path=normalized_path,
+                    job_dir=jdir,
+                    output_files=output_files,
+                    uncertainty_stats=uncertainty,
+                )
 
                 report_path = jdir / "report" / "report.json"
                 output_files["report_markdown"] = "report/report.md"
@@ -1305,10 +1546,13 @@ async def batch_process(
                         "batch_id": batch_id,
                         "super_resolution": True,
                         "original_preview": "input/original_preview.png",
+                        "hr_reference_preview": "preprocessing/hr_reference_preview.png",
+                        "hr_reference": "preprocessing/hr_reference.tif",
                         "super_resolution_preview": "super_resolution/sr_preview.png",
                         "uncertainty": uncertainty,
-                        "uncertainty_map": "uncertainty/uncertainty_map.png",
-                        "evaluation": evaluation.get("status") == "reference_available",
+                        "evaluation": True,
+                        "reference_available": evaluation.get("status") == "reference_available",
+                        "evaluation_metrics": evaluation,
                         "report": "report/report.json",
                         "report_html": "report/report.html",
                         "runtime_seconds": time.perf_counter() - started,
@@ -1424,6 +1668,186 @@ def segmentation_status() -> dict:
         ],
         "notes": "Segmentation is performed using ESA WorldCover 10 m proxy labels. Connected regions reflect land-cover clusters, not cadastral building parcels.",
     }
+
+
+@app.get("/api/v1/classification/classes")
+def get_classification_classes() -> list[dict]:
+    """Returns canonical active class definitions and colors."""
+    from backend.app.services.classification import get_class_definitions
+    return get_class_definitions()
+
+
+@app.get("/api/v1/results/{job_id}/classification")
+@app.get("/api/v1/jobs/{job_id}/classification")
+def get_classification_report_endpoint(job_id: str) -> dict:
+    """
+    Returns the complete classification and segmentation report comparing Native (10 m)
+    and LDSR-S2 super-resolved (~2.5 m equivalent) representations.
+    """
+    job = jobs.get(job_id)
+    job_dir = RESULTS_ROOT / job_id
+    if job is None and not job_dir.exists() and not (job_id == "benchmark" or job_id.startswith("ps_benchmark")):
+        raise HTTPException(status_code=404, detail=f"Job '{job_id}' not found.")
+
+    from backend.app.services.classification import get_job_classification
+    return get_job_classification(job_id, job_dir)
+
+
+@app.get("/api/v1/results/{job_id}/classification/statistics.csv")
+def download_classification_statistics(job_id: str) -> Response:
+    """Download per-class classification statistics as a CSV file."""
+    job_dir = RESULTS_ROOT / job_id
+    from backend.app.services.classification import get_job_classification
+    data = get_job_classification(job_id, job_dir)
+
+    lines = ["class_id,class_name,native_pixels,native_area_percent,native_area_ha,sr_pixels,sr_area_percent,sr_area_ha,delta_area_percent,native_iou,sr_iou,delta_iou,native_f1,sr_f1,delta_f1,support"]
+    for c in data.get("per_class", []):
+        c_name = c["name"]
+        nat_d = data.get("distribution", {}).get("native", {}).get(c_name, {})
+        sr_d = data.get("distribution", {}).get("sr", {}).get(c_name, {})
+        delta_pct = (sr_d.get("percent") or 0.0) - (nat_d.get("percent") or 0.0)
+        lines.append(
+            f"{c['id']},{c_name},"
+            f"{nat_d.get('pixel_count', '')},{nat_d.get('percent', '')},{nat_d.get('area_ha', '')},"
+            f"{sr_d.get('pixel_count', '')},{sr_d.get('percent', '')},{sr_d.get('area_ha', '')},"
+            f"{delta_pct:.2f},"
+            f"{c['native'].get('iou') if c['native'].get('iou') is not None else ''},"
+            f"{c['sr'].get('iou') if c['sr'].get('iou') is not None else ''},"
+            f"{c['delta'].get('iou') if c['delta'].get('iou') is not None else ''},"
+            f"{c['native'].get('f1') if c['native'].get('f1') is not None else ''},"
+            f"{c['sr'].get('f1') if c['sr'].get('f1') is not None else ''},"
+            f"{c['delta'].get('f1') if c['delta'].get('f1') is not None else ''},"
+            f"{c['native'].get('support') if c['native'].get('support') is not None else ''}"
+        )
+    csv_content = "\n".join(lines)
+    return Response(
+        content=csv_content,
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=classification_statistics_{job_id}.csv"},
+    )
+
+
+@app.get("/api/v1/results/{job_id}/classification/confusion_matrix.json")
+def download_confusion_matrix_endpoint(job_id: str) -> dict:
+    """Download confusion matrix JSON object."""
+    job_dir = RESULTS_ROOT / job_id
+    from backend.app.services.classification import get_job_classification
+    data = get_job_classification(job_id, job_dir)
+    return {
+        "job_id": job_id,
+        "classes": [c["name"] for c in data.get("per_class", [])],
+        "confusion_matrix": data.get("confusion_matrix"),
+        "prediction_comparison": data.get("prediction_comparison"),
+    }
+
+
+# ─── Ground Truth & Annotation Endpoints ─────────────────────────────────────
+
+@app.post("/api/v1/ground-truth/create")
+def create_ground_truth_workspace(req: GroundTruthCreateRequest) -> dict:
+    """Initializes or retrieves the Ground Truth annotation workspace for an AOI / job."""
+    from backend.app.services.ground_truth import ground_truth_service
+    job_dir = RESULTS_ROOT / req.job_id
+    return ground_truth_service.save_annotations(
+        job_id=req.job_id,
+        geojson_data={"type": "FeatureCollection", "features": []},
+        annotator=req.annotator or "Expert Annotator",
+        notes=req.notes,
+        job_dir=job_dir if job_dir.exists() else None,
+        aoi_bbox=req.aoi,
+    )
+
+
+@app.get("/api/v1/ground-truth/{job_id}")
+def get_ground_truth_endpoint(job_id: str) -> dict:
+    """Retrieves current vector annotations, metadata, and validation status for a job."""
+    from backend.app.services.ground_truth import ground_truth_service
+    job_dir = RESULTS_ROOT / job_id
+    return ground_truth_service.get_ground_truth_info(job_id, job_dir=job_dir if job_dir.exists() else None)
+
+
+@app.post("/api/v1/ground-truth/{job_id}/annotations")
+def save_ground_truth_annotations(job_id: str, req: GroundTruthAnnotationRequest) -> dict:
+    """Saves vector GeoJSON annotations for a job."""
+    from backend.app.services.ground_truth import ground_truth_service
+    job_dir = RESULTS_ROOT / job_id
+    return ground_truth_service.save_annotations(
+        job_id=job_id,
+        geojson_data=req.geojson,
+        annotator=req.annotator or "Expert Annotator",
+        notes=req.notes,
+        job_dir=job_dir if job_dir.exists() else None,
+    )
+
+
+@app.post("/api/v1/ground-truth/{job_id}/validate")
+def validate_ground_truth_annotations(job_id: str) -> dict:
+    """Validates vector geometries, class mappings, and AOI boundary coverage."""
+    from backend.app.services.ground_truth import ground_truth_service
+    job_dir = RESULTS_ROOT / job_id
+    report = ground_truth_service.validate_annotations(job_id, job_dir=job_dir if job_dir.exists() else None)
+    return report.model_dump()
+
+
+@app.post("/api/v1/ground-truth/{job_id}/rasterize")
+def rasterize_ground_truth_annotations(job_id: str, req: GroundTruthRasterizeRequest) -> dict:
+    """
+    Burns vector annotations to ground_truth.tif on the configured common evaluation grid
+    and computes dual-model classification metrics (Native vs GT and SR vs GT).
+    """
+    from backend.app.services.ground_truth import ground_truth_service
+    job_dir = RESULTS_ROOT / job_id
+    if not job_dir.exists():
+        raise HTTPException(status_code=404, detail=f"Job directory for '{job_id}' not found.")
+    try:
+        return ground_truth_service.rasterize_and_evaluate(
+            job_id=job_id,
+            job_dir=job_dir,
+            evaluation_grid=req.evaluation_grid,
+            auto_validate=req.auto_validate,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/v1/ground-truth/{job_id}/review")
+def update_ground_truth_review(job_id: str, req: GroundTruthReviewRequest) -> dict:
+    """Transitions review status (draft -> review -> validated). Only validated is GROUND_TRUTH."""
+    from backend.app.services.ground_truth import ground_truth_service, ValidationStatus
+    job_dir = RESULTS_ROOT / job_id
+    try:
+        val_status = ValidationStatus(req.status.lower())
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid status '{req.status}'. Must be draft, review, or validated.",
+        )
+    return ground_truth_service.update_review_status(
+        job_id=job_id,
+        status=val_status,
+        reviewer=req.reviewer,
+        job_dir=job_dir if job_dir.exists() else None,
+    )
+
+
+@app.get("/api/v1/ground-truth/{job_id}/export/{format}")
+def export_ground_truth_data(job_id: str, format: str) -> Response:
+    """Exports ground-truth data as GeoJSON, GeoTIFF, CSV, Confusion Matrix JSON, or Metadata."""
+    from backend.app.services.ground_truth import ground_truth_service
+    job_dir = RESULTS_ROOT / job_id
+    try:
+        data_bytes, media_type, filename = ground_truth_service.export_data(
+            job_id=job_id,
+            export_format=format,
+            job_dir=job_dir if job_dir.exists() else None,
+        )
+        return Response(
+            content=data_bytes,
+            media_type=media_type,
+            headers={"Content-Disposition": f"attachment; filename={filename}"},
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @app.post("/api/v1/segmentation")
@@ -1599,16 +2023,19 @@ def uncertainty() -> dict:
     return _unavailable_module("uncertainty")
 
 
-@app.post("/api/v1/analysis/urban", status_code=501)
-def urban_analysis() -> dict:
-    return _unavailable_module("analysis/urban")
+@app.post("/api/v1/analysis/urban", response_model=JobResponse, status_code=202)
+async def api_analysis_urban(upload: Annotated[UploadFile, File(...)]) -> JobResponse:
+    return await process_urban(upload)
 
 
-@app.post("/api/v1/analysis/crop", status_code=501)
-def crop_analysis() -> dict:
-    return _unavailable_module("analysis/crop")
+@app.post("/api/v1/analysis/crop", response_model=JobResponse, status_code=202)
+async def api_analysis_crop(upload: Annotated[UploadFile, File(...)]) -> JobResponse:
+    return await process_crop(upload)
 
 
-@app.post("/api/v1/analysis/disaster", status_code=501)
-def disaster_analysis() -> dict:
-    return _unavailable_module("analysis/disaster")
+@app.post("/api/v1/analysis/disaster", response_model=JobResponse, status_code=202)
+async def api_analysis_disaster(
+    pre_event: Annotated[UploadFile, File(...)],
+    post_event: Annotated[UploadFile, File(...)],
+) -> JobResponse:
+    return await process_disaster(pre_event, post_event)
