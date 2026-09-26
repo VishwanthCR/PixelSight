@@ -10,7 +10,7 @@ import torch
 import numpy as np
 import rasterio
 from fastapi import FastAPI, File, HTTPException, UploadFile, Query
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from PIL import Image
 from rasterio.transform import from_origin
 from skimage.metrics import peak_signal_noise_ratio, structural_similarity
@@ -74,6 +74,30 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 reference_discovery_service = ReferenceDiscoveryService()
 reference_aligner = ReferenceAligner()
 reference_evaluator = ReferenceEvaluator()
+
+try:
+    from backend.app.services.analyst import (
+        AnalystBatchSummaryRequest,
+        AnalystChatRequest,
+        AnalystChatResponse,
+        AnalystExplainRequest,
+        AnalystModelListResponse,
+        AnalystStatusResponse,
+        PixelSightAnalystService,
+    )
+except ImportError:
+    from app.services.analyst import (
+        AnalystBatchSummaryRequest,
+        AnalystChatRequest,
+        AnalystChatResponse,
+        AnalystExplainRequest,
+        AnalystModelListResponse,
+        AnalystStatusResponse,
+        PixelSightAnalystService,
+    )
+
+analyst_service = PixelSightAnalystService(results_root=RESULTS_ROOT)
+
 
 
 def _safe_suffix(filename: str | None) -> str:
@@ -2039,3 +2063,123 @@ async def api_analysis_disaster(
     post_event: Annotated[UploadFile, File(...)],
 ) -> JobResponse:
     return await process_disaster(pre_event, post_event)
+
+
+# ===========================================================================
+# PixelSight Analyst (Local LLM via Ollama)
+# ===========================================================================
+
+@app.get("/api/v1/analyst/status", response_model=AnalystStatusResponse)
+async def get_analyst_status() -> AnalystStatusResponse:
+    """Return local Ollama runtime status, configured model, and availability."""
+    return await analyst_service.get_status()
+
+
+@app.get("/api/v1/analyst/models", response_model=AnalystModelListResponse)
+async def get_analyst_models() -> AnalystModelListResponse:
+    """List local models available in Ollama daemon."""
+    return await analyst_service.list_models()
+
+
+@app.post("/api/v1/analyst/models/select")
+def select_analyst_model(payload: dict[str, str]) -> dict[str, Any]:
+    """Select the active local Ollama model."""
+    model = payload.get("model")
+    if not model:
+        raise HTTPException(status_code=400, detail="Model name required.")
+    analyst_service.set_model(model)
+    return {"selected_model": analyst_service.configured_model}
+
+
+@app.post("/api/v1/analyst/jobs/{job_id}/explain")
+async def explain_job_results(
+    job_id: str,
+    payload: AnalystExplainRequest | None = None,
+):
+    """
+    Explain completed job results using local Ollama LLM.
+    Scientific context is constructed automatically by the backend.
+    """
+    job = jobs.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job '{job_id}' not found.")
+
+    req = payload or AnalystExplainRequest()
+    try:
+        res = await analyst_service.explain_job(
+            job_id,
+            job,
+            question=req.question,
+            stream=req.stream,
+        )
+        if req.stream:
+            return StreamingResponse(res, media_type="text/plain")
+        return res
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Analyst error: {exc}")
+
+
+@app.post("/api/v1/analyst/jobs/{job_id}/chat")
+async def chat_job_results(
+    job_id: str,
+    payload: AnalystChatRequest,
+):
+    """
+    Multi-turn grounded conversation about an actual PixelSight job.
+    """
+    job = jobs.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job '{job_id}' not found.")
+
+    try:
+        res = await analyst_service.chat_job(
+            job_id,
+            job,
+            message=payload.message,
+            stream=payload.stream,
+            history_limit=payload.history_limit,
+        )
+        if payload.stream:
+            return StreamingResponse(res, media_type="text/plain")
+        return res
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Analyst error: {exc}")
+
+
+@app.post("/api/v1/analyst/batch/{batch_id}/summary")
+async def summarize_batch_run(
+    batch_id: str,
+    payload: AnalystBatchSummaryRequest | None = None,
+):
+    """
+    Generate analytical summary for a batch of jobs.
+    """
+    all_jobs = jobs.list_all()
+    batch_jobs = [
+        j for j in all_jobs
+        if j.get("outputs", {}).get("batch_id") == batch_id
+    ]
+    if not batch_jobs:
+        raise HTTPException(status_code=404, detail=f"Batch '{batch_id}' not found or contains no jobs.")
+
+    req = payload or AnalystBatchSummaryRequest()
+    try:
+        res = await analyst_service.summarize_batch(
+            batch_id,
+            batch_jobs,
+            question=req.question,
+            stream=req.stream,
+        )
+        if req.stream:
+            return StreamingResponse(res, media_type="text/plain")
+        return res
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Analyst error: {exc}")
+
+
+@app.delete("/api/v1/analyst/sessions/{session_id}")
+def clear_analyst_session(session_id: str) -> dict[str, str]:
+    """Clear bounded conversation history for a job or batch session."""
+    analyst_service.clear_history(session_id)
+    return {"status": "cleared", "session_id": session_id}
+

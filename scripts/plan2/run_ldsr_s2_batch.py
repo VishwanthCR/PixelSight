@@ -23,19 +23,27 @@ CONFIG_URL = (
 def load_model(device):
     print("\n=== Loading LDSR-S2 ===")
 
-    print("Downloading official configuration...")
+    print("Loading official configuration...")
 
-    response = requests.get(
-        CONFIG_URL,
-        timeout=30,
-    )
-    response.raise_for_status()
+    repo_cfg = Path(__file__).resolve().parent / "configs" / "config_10m.yaml"
+    pkg_cfg = Path(opensr_model.__file__).parent / "configs" / "config_10m.yaml"
 
-    config = OmegaConf.load(
-        StringIO(response.text)
-    )
+    if repo_cfg.exists():
+        config = OmegaConf.load(str(repo_cfg))
+    elif pkg_cfg.exists():
+        config = OmegaConf.load(str(pkg_cfg))
+    else:
+        response = requests.get(
+            CONFIG_URL,
+            timeout=30,
+        )
+        response.raise_for_status()
+        config = OmegaConf.load(
+            StringIO(response.text)
+        )
 
     print("Configuration loaded.")
+
 
     print("Creating LDSR-S2 model...")
 

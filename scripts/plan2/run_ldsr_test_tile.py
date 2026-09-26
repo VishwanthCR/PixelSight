@@ -102,18 +102,25 @@ def main():
 
     print("Loading official LDSR-S2 configuration...")
 
-    response = requests.get(
-        CONFIG_URL,
-        timeout=30
-    )
+    repo_cfg = Path(__file__).resolve().parent / "configs" / "config_10m.yaml"
+    pkg_cfg = Path(opensr_model.__file__).parent / "configs" / "config_10m.yaml"
 
-    response.raise_for_status()
-
-    config = OmegaConf.load(
-        StringIO(response.text)
-    )
+    if repo_cfg.exists():
+        config = OmegaConf.load(str(repo_cfg))
+    elif pkg_cfg.exists():
+        config = OmegaConf.load(str(pkg_cfg))
+    else:
+        response = requests.get(
+            CONFIG_URL,
+            timeout=30
+        )
+        response.raise_for_status()
+        config = OmegaConf.load(
+            StringIO(response.text)
+        )
 
     print("Configuration loaded.")
+
     print()
 
 

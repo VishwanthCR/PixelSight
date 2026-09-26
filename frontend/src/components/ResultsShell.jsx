@@ -5,6 +5,7 @@ import UrbanAnalysisPage from '../pages/UrbanAnalysisPage.jsx';
 import DisasterManagementPage from '../pages/DisasterManagementPage.jsx';
 import BatchProcessingPage from '../pages/BatchProcessingPage.jsx';
 import EvaluationDashboardPage from '../pages/EvaluationDashboardPage.jsx';
+import AnalystDrawer from './AnalystDrawer.jsx';
 
 /**
  * ResultsShell & UseCaseRouter
@@ -16,6 +17,9 @@ import EvaluationDashboardPage from '../pages/EvaluationDashboardPage.jsx';
  *
  * Each use-case page owns its own visualizations, metrics, and downloads
  * without cross-contamination.
+ *
+ * PixelSight Analyst drawer is integrated cleanly over the results shell
+ * without altering scientific outputs or layout.
  */
 export default function ResultsShell({
   job,
@@ -33,70 +37,85 @@ export default function ResultsShell({
     'research'
   ).toLowerCase();
 
-  switch (useCase) {
-    case 'disaster':
-      return (
-        <DisasterManagementPage
-          job={job}
-          results={results}
-          report={report}
-          onReset={onReset}
-          onSelectApplication={onSelectApplication}
-          health={health}
-        />
-      );
+  const renderContent = () => {
+    switch (useCase) {
+      case 'disaster':
+        return (
+          <DisasterManagementPage
+            job={job}
+            results={results}
+            report={report}
+            onReset={onReset}
+            onSelectApplication={onSelectApplication}
+            health={health}
+          />
+        );
 
-    case 'crop':
-      return (
-        <CropMonitoringPage
-          job={job}
-          results={results}
-          report={report}
-          onReset={onReset}
-          onSelectApplication={onSelectApplication}
-          health={health}
-        />
-      );
+      case 'crop':
+        return (
+          <CropMonitoringPage
+            job={job}
+            results={results}
+            report={report}
+            onReset={onReset}
+            onSelectApplication={onSelectApplication}
+            health={health}
+          />
+        );
 
-    case 'urban':
-      return (
-        <UrbanAnalysisPage
-          job={job}
-          results={results}
-          report={report}
-          onReset={onReset}
-          onSelectApplication={onSelectApplication}
-          health={health}
-        />
-      );
+      case 'urban':
+        return (
+          <UrbanAnalysisPage
+            job={job}
+            results={results}
+            report={report}
+            onReset={onReset}
+            onSelectApplication={onSelectApplication}
+            health={health}
+          />
+        );
 
-    case 'batch':
-      return (
-        <BatchProcessingPage
-          onBack={onReset}
-        />
-      );
+      case 'batch':
+        return (
+          <BatchProcessingPage
+            onBack={onReset}
+          />
+        );
 
-    case 'evaluation':
-      return (
-        <EvaluationDashboardPage
-          onBack={onReset}
-        />
-      );
+      case 'evaluation':
+        return (
+          <EvaluationDashboardPage
+            onBack={onReset}
+          />
+        );
 
-    case 'research':
-    case 'core':
-    default:
-      return (
-        <ResultsDashboard
-          job={job}
-          results={results}
-          report={report}
-          onReset={onReset}
-          onSelectApplication={onSelectApplication}
-          health={health}
-          activeApp="research"
-        />
-      );
-  }
+      case 'research':
+      case 'core':
+      default:
+        return (
+          <ResultsDashboard
+            job={job}
+            results={results}
+            report={report}
+            onReset={onReset}
+            onSelectApplication={onSelectApplication}
+            health={health}
+            activeApp="research"
+          />
+        );
+    }
+  };
+
+  return (
+    <>
+      {renderContent()}
+      <AnalystDrawer
+        job={job}
+        results={results}
+        report={report}
+        application={useCase}
+      />
+    </>
+  );
 }
+
